@@ -1,0 +1,19 @@
+{
+  "name": "Finanza",
+  "short_name": "Finanza",
+  "description": "Registra ingresos, gastos, metas y descarga reportes financieros en PDF.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f8f4",
+  "theme_color": "#14251d",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

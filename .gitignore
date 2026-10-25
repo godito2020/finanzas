@@ -1,0 +1,16 @@
+node_modules/
+vendor/
+www/
+app.bundle.js
+api/config.local.php
+storage/*.sqlite
+storage/*.sqlite-shm
+storage/*.sqlite-wal
+uploads/*
+!uploads/.htaccess
+.env
+api-config.production.js
+android/.gradle/
+android/local.properties
+android/build/
+android/app/build/

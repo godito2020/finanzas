@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f8f4" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Finanza" />
+    <title>Finanza — tus números en orden</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <section class="auth-screen" id="authScreen">
+      <div class="auth-brand">
+        <span class="brand-mark" aria-hidden="true">f.</span>
+        <img class="brand-logo" id="authLogo" alt="" hidden />
+        <span class="brand-copy"><strong class="brand-name">Finanza</strong><small>tus números, en orden</small></span>
+      </div>
+      <div class="auth-card">
+        <p class="eyebrow">TU ESPACIO FINANCIERO</p>
+        <h1 id="authTitle">Qué gusto verte.</h1>
+        <p class="auth-intro" id="authIntro">Inicia sesión para consultar tus movimientos desde cualquier dispositivo.</p>
+        <p class="auth-message" id="authMessage" role="status" aria-live="polite" hidden></p>
+        <p class="auth-config-note" id="authConfigNote" hidden></p>
+        <div class="auth-views">
+          <form class="auth-form" id="loginForm">
+            <label for="loginEmail">Correo electrónico</label>
+            <input id="loginEmail" type="email" autocomplete="email" maxlength="254" placeholder="tu@correo.com" required />
+            <label for="loginPassword">Contraseña</label>
+            <input id="loginPassword" type="password" autocomplete="current-password" required />
+            <button class="button button-primary wide" type="submit">Iniciar sesión</button>
+            <button class="auth-link" id="showRecoveryButton" type="button">Olvidé mi contraseña</button>
+            <p class="auth-switch">¿Primera vez aquí? <button class="auth-link" data-auth-view="register" type="button">Crea tu cuenta</button></p>
+            <button class="auth-link" id="showSetupButton" type="button" hidden>Configurar cuenta maestra</button>
+          </form>
+
+          <form class="auth-form" id="setupMasterForm" hidden>
+            <label for="setupCode">Código único de instalación</label>
+            <input id="setupCode" type="password" autocomplete="off" maxlength="200" required />
+            <label for="setupName">Nombre de administrador</label>
+            <input id="setupName" type="text" maxlength="80" autocomplete="name" required />
+            <label for="setupEmail">Correo electrónico</label>
+            <input id="setupEmail" type="email" maxlength="254" autocomplete="email" required />
+            <label for="setupPassword">Contraseña <span class="field-hint">12 caracteres mínimo</span></label>
+            <input id="setupPassword" type="password" minlength="12" autocomplete="new-password" required />
+            <button class="button button-primary wide" type="submit">Crear cuenta maestra</button>
+            <button class="auth-link" data-auth-view="login" type="button">Volver a iniciar sesión</button>
+          </form>
+
+          <form class="auth-form" id="registerForm" hidden>
+            <label for="registerName">Tu nombre</label>
+            <input id="registerName" type="text" autocomplete="name" maxlength="80" placeholder="¿Cómo te llamas?" required />
+            <label for="registerEmail">Correo electrónico</label>
+            <input id="registerEmail" type="email" autocomplete="email" maxlength="254" placeholder="tu@correo.com" required />
+            <label for="registerPassword">Contraseña <span class="field-hint">12 caracteres mínimo</span></label>
+            <input id="registerPassword" type="password" autocomplete="new-password" minlength="12" required />
+            <button class="button button-primary wide" type="submit">Crear cuenta</button>
+            <p class="auth-switch">¿Ya tienes cuenta? <button class="auth-link" data-auth-view="login" type="button">Inicia sesión</button></p>
+          </form>
+
+          <form class="auth-form" id="requestResetForm" hidden>
+            <label for="recoveryEmail">Correo de tu cuenta</label>
+            <input id="recoveryEmail" type="email" autocomplete="email" maxlength="254" placeholder="tu@correo.com" required />
+            <button class="button button-primary wide" type="submit">Enviar código de recuperación</button>
+            <button class="auth-link" data-auth-view="login" type="button">Volver a iniciar sesión</button>
+          </form>
+
+          <form class="auth-form" id="resetPasswordForm" hidden>
+            <label for="resetEmail">Correo electrónico</label>
+            <input id="resetEmail" type="email" autocomplete="email" maxlength="254" required />
+            <label for="resetCode">Código de 8 dígitos</label>
+            <input id="resetCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" required />
+            <label for="newPassword">Nueva contraseña <span class="field-hint">12 caracteres mínimo</span></label>
+            <input id="newPassword" type="password" autocomplete="new-password" minlength="12" required />
+            <button class="button button-primary wide" type="submit">Guardar nueva contraseña</button>
+            <button class="auth-link" id="resendCodeButton" type="button">Enviar otro código</button>
+            <button class="auth-link" data-auth-view="login" type="button">Volver a iniciar sesión</button>
+          </form>
+        </div>
+        <p class="auth-privacy">Tus movimientos y categorías son privados y están protegidos en tu cuenta.</p>
+        <p class="auth-footer">Hecho por <a href="https://softhard.pe" target="_blank" rel="noopener noreferrer">SoftHard Peru</a></p>
+      </div>
+    </section>
+
+    <div class="app-shell" id="appShell" hidden>
+      <aside class="sidebar">
+        <a class="brand" href="#overview" aria-label="Finanza, inicio">
+          <span class="brand-mark" aria-hidden="true">f.</span>
+          <img class="brand-logo" id="appLogo" alt="" hidden />
+          <span class="brand-copy">
+            <strong class="brand-name">Finanza</strong>
+            <small>tus números, en orden</small>
+          </span>
+        </a>
+
+        <p class="nav-heading">TU ESPACIO</p>
+        <nav class="nav" aria-label="Navegación principal">
+          <a class="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Resumen</a>
+          <a class="nav-item" href="#capture"><span aria-hidden="true">＋</span> Nuevo movimiento</a>
+          <a class="nav-item" href="#transactions"><span aria-hidden="true">↕</span> Movimientos</a>
+          <a class="nav-item" href="#goals"><span aria-hidden="true">◎</span> Metas</a>
+        </nav>
+
+        <div class="sidebar-note">
+          <span class="privacy-icon" aria-hidden="true">✓</span>
+          <div><strong>Privado por diseño</strong><small>Tus datos viven en tu cuenta privada.</small></div>
+        </div>
+        <div class="sidebar-footer">FINANZAS PERSONALES · 2026</div>
+      </aside>
+
+      <main class="content" id="overview">
+        <header class="topbar">
+          <div class="welcome-copy">
+            <p class="eyebrow">TU RESUMEN FINANCIERO</p>
+            <h1>Hola, aquí está tu dinero.</h1>
+            <p id="monthLabel" class="month-label">Mes actual</p>
+          </div>
+          <div class="topbar-actions">
+            <button class="button button-report" type="button" id="reportButton">
+              <span aria-hidden="true">↓</span> Descargar reporte PDF
+            </button>
+            <button class="button button-install install-button" type="button" id="installButton" hidden>Instalar app</button>
+            <button class="button button-reset" type="button" id="adminPanelButton" hidden>Administración</button>
+            <div class="account-menu"><span id="accountEmail"></span><button class="button button-reset" type="button" id="logoutButton">Cerrar sesión</button></div>
+          </div>
+        </header>
+        <p class="app-notice" id="appNotice" role="status" aria-live="polite" hidden></p>
+
+        <section class="cards" aria-label="Resumen del mes">
+          <article class="card balance-card">
+            <div class="card-heading"><span>Balance del mes</span><span class="card-icon balance-icon" aria-hidden="true">↗</span></div>
+            <strong id="balanceValue">$0.00</strong>
+            <small id="balanceDelta">Ingresos menos gastos</small>
+          </article>
+          <article class="card">
+            <div class="card-heading"><span>Ingresos</span><span class="card-icon income-icon" aria-hidden="true">＋</span></div>
+            <strong id="incomeValue">$0.00</strong>
+            <small>Entradas registradas este mes</small>
+          </article>
+          <article class="card expense-card">
+            <div class="card-heading"><span>Gastos</span><span class="card-icon expense-icon" aria-hidden="true">−</span></div>
+            <strong id="expenseValue">$0.00</strong>
+            <small>Salidas registradas este mes</small>
+          </article>
+          <article class="card">
+            <div class="card-heading"><span>Ahorro sugerido</span><span class="card-icon savings-icon" aria-hidden="true">◎</span></div>
+            <strong id="savedValue">$0.00</strong>
+            <small>30% de tus ingresos del mes</small>
+          </article>
+        </section>
+
+        <section class="analytics-grid" aria-label="Análisis financiero">
+          <article class="panel chart-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">TENDENCIA</p><h2>Ingresos y gastos</h2></div>
+              <div class="chart-legend"><span><i class="legend-income"></i>Ingresos</span><span><i class="legend-expense"></i>Gastos</span></div>
+            </div>
+            <div id="monthlyChart" class="chart-bars" aria-label="Comparación mensual de ingresos y gastos" aria-live="polite"></div>
+          </article>
+          <article class="panel chart-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">EN QUÉ SE VA</p><h2>Gastos por categoría</h2></div>
+            </div>
+            <div id="categoryChart" class="category-chart" aria-live="polite"></div>
+          </article>
+        </section>
+
+        <section class="panel-grid" id="capture">
+          <section class="panel form-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">REGISTRO RÁPIDO</p><h2 id="transactionFormTitle">Nuevo movimiento</h2></div>
+            </div>
+
+            <form id="transactionForm">
+              <div class="field-row">
+                <label for="descriptionInput">¿En qué consiste?</label>
+                <input id="descriptionInput" name="description" type="text" maxlength="80" placeholder="Ej. Nómina, mercado, recibo de luz" required />
+              </div>
+              <div class="field-row two-cols">
+                <div>
+                  <label for="typeInput">Tipo de movimiento</label>
+                  <select id="typeInput" name="type">
+                    <option value="expense">Gasto</option>
+                    <option value="income">Ingreso</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="categoryInput">Categoría</label>
+                  <select id="categoryInput" name="category">
+                    <option value="Alimentación">Alimentación</option>
+                    <option value="Vivienda">Vivienda</option>
+                    <option value="Transporte">Transporte</option>
+                    <option value="Salud">Salud</option>
+                    <option value="Entretenimiento">Entretenimiento</option>
+                    <option value="Educación">Educación</option>
+                    <option value="Ahorro">Ahorro</option>
+                    <option value="Ingresos">Ingresos</option>
+                    <option value="Otros">Otros</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field-row two-cols">
+                <div>
+                  <label for="amountInput">Monto <span class="field-hint">MXN</span></label>
+                  <input id="amountInput" name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0.00" required />
+                </div>
+                <div>
+                  <label for="dateInput">Fecha</label>
+                  <input id="dateInput" name="date" type="date" required />
+                </div>
+              </div>
+              <div class="button-row">
+                <button class="button button-primary wide" type="submit" id="submitButton">Guardar movimiento</button>
+                <button class="button button-quiet" type="button" id="cancelEditButton" hidden>Cancelar edición</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel categories-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">A TU MANERA</p><h2>Tus categorías</h2></div>
+            </div>
+            <p class="section-description">Agrega categorías además de las sugeridas. Solo tú podrás verlas.</p>
+            <form id="categoryForm" class="category-form">
+              <div><label for="newCategoryInput">Nombre de la categoría</label><input id="newCategoryInput" type="text" maxlength="40" placeholder="Ej. Mascotas, Suscripciones" required /></div>
+              <button class="button button-primary" type="submit">Agregar categoría</button>
+            </form>
+            <div id="customCategoryList" class="custom-category-list" aria-live="polite"></div>
+          </section>
+
+          <section class="panel budget-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">ESTE MES</p><h2>Gasto por categoría</h2></div>
+            </div>
+            <div id="budgetList" class="budget-list" aria-live="polite"></div>
+          </section>
+        </section>
+
+        <section class="goals-grid" id="goals">
+          <article class="panel goal-form-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">PLANEA A FUTURO</p><h2>Crear una meta</h2></div>
+            </div>
+            <form id="goalForm">
+              <div class="field-row">
+                <label for="goalNameInput">Nombre de la meta</label>
+                <input id="goalNameInput" name="goalName" type="text" maxlength="60" placeholder="Ej. Fondo de emergencia" required />
+              </div>
+              <div class="field-row two-cols">
+                <div><label for="goalTargetInput">Objetivo (MXN)</label><input id="goalTargetInput" name="goalTarget" type="number" min="1" step="0.01" inputmode="decimal" placeholder="0.00" required /></div>
+                <div><label for="goalCurrentInput">Ahorrado (MXN)</label><input id="goalCurrentInput" name="goalCurrent" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required /></div>
+              </div>
+              <div class="field-row"><label for="goalDateInput">Fecha objetivo</label><input id="goalDateInput" name="goalDate" type="date" required /></div>
+              <button class="button button-primary wide" type="submit">Guardar meta</button>
+            </form>
+          </article>
+          <article class="panel goals-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">PASO A PASO</p><h2>Tus metas</h2></div>
+            </div>
+            <div id="goalsList" class="goals-list" aria-live="polite"></div>
+          </article>
+        </section>
+
+        <section class="panel transactions-panel" id="transactions">
+          <div class="panel-header panel-header-filter">
+            <div><p class="eyebrow">TU HISTORIAL</p><h2>Movimientos</h2></div>
+            <div class="filters" id="filterForm">
+              <input id="searchInput" type="search" placeholder="Buscar movimiento" aria-label="Buscar movimientos" />
+              <select id="filterTypeInput" aria-label="Filtrar por tipo">
+                <option value="all">Todos los tipos</option><option value="income">Ingresos</option><option value="expense">Gastos</option>
+              </select>
+              <select id="filterCategoryInput" aria-label="Filtrar por categoría">
+                <option value="all">Todas las categorías</option><option value="Ingresos">Ingresos</option><option value="Vivienda">Vivienda</option><option value="Alimentación">Alimentación</option><option value="Transporte">Transporte</option><option value="Salud">Salud</option><option value="Entretenimiento">Entretenimiento</option><option value="Educación">Educación</option><option value="Ahorro">Ahorro</option><option value="Otros">Otros</option>
+              </select>
+              <select id="filterMonthInput" aria-label="Filtrar por mes"><option value="all">Todo el período</option></select>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead><tr><th>Descripción</th><th>Categoría</th><th>Fecha</th><th>Monto</th><th>Acciones</th></tr></thead>
+              <tbody id="transactionTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel suggestion-panel" id="suggestions">
+          <div class="panel-header"><div><p class="eyebrow">TU OPINIÓN CUENTA</p><h2>Comparte una sugerencia</h2></div></div>
+          <p class="section-description">Cuéntanos qué podríamos mejorar. Solo el equipo administrador revisa estos mensajes.</p>
+          <form id="suggestionForm" class="suggestion-form">
+            <label for="suggestionInput">Tu sugerencia</label>
+            <textarea id="suggestionInput" maxlength="1200" rows="4" required></textarea>
+            <button class="button button-primary" type="submit">Enviar sugerencia</button>
+          </form>
+        </section>
+
+        <section class="admin-panel" id="adminPanel" hidden>
+          <div class="panel admin-heading">
+            <div><p class="eyebrow">ACCESO MAESTRO</p><h2>Administración de la aplicación</h2></div>
+            <button class="button button-reset" type="button" id="closeAdminButton">Volver a Finanza</button>
+          </div>
+          <section class="panel admin-section">
+            <div class="panel-header"><div><p class="eyebrow">CUENTAS</p><h2>Clientes</h2></div></div>
+            <form id="adminUserForm" class="admin-inline-form">
+              <input id="adminUserName" type="text" maxlength="80" placeholder="Nombre" aria-label="Nombre del cliente" required />
+              <input id="adminUserEmail" type="email" maxlength="254" placeholder="Correo electrónico" aria-label="Correo del cliente" required />
+              <input id="adminUserPassword" type="password" minlength="12" placeholder="Contraseña inicial (12+)" aria-label="Contraseña inicial" required />
+              <button class="button button-primary" type="submit">Agregar cliente</button>
+            </form>
+            <div id="adminUsersList" class="admin-record-list" aria-live="polite"></div>
+          </section>
+          <section class="panel admin-section">
+            <div class="panel-header"><div><p class="eyebrow">IDENTIDAD Y CORREO</p><h2>Configuración</h2></div></div>
+            <form id="adminSettingsForm" class="admin-settings-form">
+              <div class="field-row two-cols">
+                <div><label for="appNameInput">Nombre de la aplicación</label><input id="appNameInput" maxlength="60" required /></div>
+                <div><label for="contactEmailInput">Correo de contacto</label><input id="contactEmailInput" type="email" maxlength="254" /></div>
+              </div>
+              <h3>Servidor de correo SMTP</h3>
+              <p class="section-description">La contraseña se cifra en el servidor y nunca se muestra aquí. Déjala vacía para conservarla.</p>
+              <div class="field-row two-cols">
+                <div><label for="smtpHostInput">Servidor</label><input id="smtpHostInput" maxlength="255" autocomplete="off" /></div>
+                <div><label for="smtpPortInput">Puerto</label><input id="smtpPortInput" type="number" min="1" max="65535" value="587" /></div>
+              </div>
+              <div class="field-row two-cols">
+                <div><label for="smtpEncryptionInput">Seguridad</label><select id="smtpEncryptionInput"><option value="tls">TLS</option><option value="ssl">SSL</option><option value="">Sin cifrado</option></select></div>
+                <div><label for="smtpUserInput">Usuario</label><input id="smtpUserInput" maxlength="255" autocomplete="off" /></div>
+              </div>
+              <div class="field-row two-cols">
+                <div><label for="smtpPasswordInput">Contraseña SMTP</label><input id="smtpPasswordInput" type="password" maxlength="500" autocomplete="new-password" /></div>
+                <div><label for="mailFromInput">Correo remitente</label><input id="mailFromInput" type="email" maxlength="254" /></div>
+              </div>
+              <div class="field-row"><label for="mailFromNameInput">Nombre remitente</label><input id="mailFromNameInput" maxlength="100" /></div>
+              <div class="field-row two-cols">
+                <div><label for="logoUpload">Logotipo (PNG, JPG o WebP; máximo 2 MB)</label><input id="logoUpload" type="file" accept="image/png,image/jpeg,image/webp" /></div>
+                <button class="button button-quiet upload-button" type="button" data-upload-kind="logo">Subir logotipo</button>
+              </div>
+              <div class="field-row two-cols">
+                <div><label for="faviconUpload">Favicon (PNG, JPG o WebP; máximo 2 MB)</label><input id="faviconUpload" type="file" accept="image/png,image/jpeg,image/webp" /></div>
+                <button class="button button-quiet upload-button" type="button" data-upload-kind="favicon">Subir favicon</button>
+              </div>
+              <button class="button button-primary" type="submit">Guardar configuración</button>
+            </form>
+          </section>
+          <section class="panel admin-section">
+            <div class="panel-header"><div><p class="eyebrow">COMENTARIOS</p><h2>Sugerencias de clientes</h2></div></div>
+            <div id="adminSuggestionsList" class="admin-record-list" aria-live="polite"></div>
+          </section>
+          <section class="panel admin-section">
+            <div class="panel-header"><div><p class="eyebrow">GESTIÓN FLEXIBLE</p><h2>Opciones y suscripciones</h2></div></div>
+            <form id="subscriptionOptionForm" class="admin-settings-form">
+              <div class="field-row two-cols">
+                <div><label for="optionNameInput">Nombre de la opción</label><input id="optionNameInput" maxlength="60" required /></div>
+                <div><label for="optionFeaturesInput">Características (separadas por coma)</label><input id="optionFeaturesInput" maxlength="1000" placeholder="Reportes, soporte prioritario" /></div>
+              </div>
+              <div class="field-row"><label for="optionDescriptionInput">Descripción</label><input id="optionDescriptionInput" maxlength="300" /></div>
+              <button class="button button-primary" type="submit">Crear opción</button>
+            </form>
+            <div id="subscriptionOptionsList" class="admin-record-list" aria-live="polite"></div>
+            <h3>Asignar una opción a un cliente</h3>
+            <form id="subscriptionAssignmentForm" class="admin-inline-form">
+              <select id="assignmentUserInput" aria-label="Cliente" required><option value="">Selecciona cliente</option></select>
+              <select id="assignmentOptionInput" aria-label="Opción de suscripción" required><option value="">Selecciona opción</option></select>
+              <input id="assignmentStartInput" type="date" aria-label="Inicio" />
+              <input id="assignmentEndInput" type="date" aria-label="Fin opcional" />
+              <button class="button button-primary" type="submit">Asignar</button>
+            </form>
+            <div id="subscriptionAssignmentsList" class="admin-record-list" aria-live="polite"></div>
+          </section>
+        </section>
+        <footer class="page-footer">Hecho para entender mejor tu dinero. <span id="publicContactEmail" hidden></span><a href="https://softhard.pe" target="_blank" rel="noopener noreferrer">SoftHard Peru</a></footer>
+      </main>
+    </div>
+    <nav class="mobile-nav" aria-label="Navegación móvil">
+      <a href="#overview"><span aria-hidden="true">⌂</span>Resumen</a>
+      <a href="#capture"><span aria-hidden="true">＋</span>Agregar</a>
+      <a href="#transactions"><span aria-hidden="true">↕</span>Movimientos</a>
+      <a href="#goals"><span aria-hidden="true">◎</span>Metas</a>
+    </nav>
+    <script src="api-config.js"></script>
+    <script src="app.bundle.js"></script>
+  </body>
+</html>

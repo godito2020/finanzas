@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Finanza icon">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  <rect x="120" y="110" width="272" height="292" rx="36" fill="rgba(255,255,255,0.17)"/>
+  <path d="M170 350h172" stroke="#ffffff" stroke-width="22" stroke-linecap="round"/>
+  <path d="M170 220h54" stroke="#ffffff" stroke-width="22" stroke-linecap="round"/>
+  <path d="M170 170h118" stroke="#ffffff" stroke-width="22" stroke-linecap="round"/>
+  <path d="M170 270h84" stroke="#ffffff" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="350" cy="205" r="62" fill="#ffffff" opacity="0.9"/>
+  <path d="M328 205l17 17 31-38" stroke="#2563eb" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

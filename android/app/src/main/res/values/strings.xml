@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Finanza</string>
+    <string name="title_activity_main">Finanza</string>
+    <string name="package_name">com.finanza.app</string>
+    <string name="custom_url_scheme">com.finanza.app</string>
+</resources>
