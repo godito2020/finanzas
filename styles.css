@@ -413,8 +413,8 @@ td .goal-actions { flex-wrap: nowrap; }
 
 @media (max-width: 760px) {
   html { scroll-padding-top: 12px; }
-  .auth-screen { display: flex; min-height: 100vh; min-height: 100dvh; flex-direction: column; justify-content: center; gap: 35px; padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom)); }
-  .auth-brand { align-self: flex-start; margin-left: 3px; }
+  .auth-screen { display: flex; min-height: 100vh; min-height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 35px; padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom)); }
+  .auth-brand { align-self: center; justify-content: center; margin: 0 auto; text-align: center; }
   .auth-card { max-width: 460px; padding: 25px 20px; border-radius: 18px; }
   .app-shell { display: block; min-height: 100vh; min-height: 100dvh; }
   .sidebar { position: relative; display: block; width: 100%; height: auto; padding: max(16px, env(safe-area-inset-top)) 18px 13px; }
@@ -486,6 +486,7 @@ td .goal-actions { flex-wrap: nowrap; }
     box-shadow: 0 -8px 25px rgba(24, 42, 31, .06);
     backdrop-filter: blur(14px);
   }
+  .mobile-nav[hidden] { display: none !important; }
   .mobile-nav a { display: grid; min-height: 48px; place-items: center; align-content: center; gap: 3px; border-radius: 10px; color: #78847b; font-size: .62rem; font-weight: 620; text-decoration: none; }
   .mobile-nav a span { font-size: 1.15rem; line-height: 1; }
   .mobile-nav a:active, .mobile-nav a:focus { background: #edf5ed; color: var(--green); }

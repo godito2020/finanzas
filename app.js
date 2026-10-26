@@ -145,6 +145,7 @@ function initialize() {
   installButton.hidden = true;
   authScreen.hidden = false;
   appShell.hidden = true;
+  mobileNav.hidden = true;
   apiBaseUrl = getApiBaseUrl();
   initializePublicSettings();
 
@@ -319,6 +320,7 @@ async function loadAccountData() {
 function showApp() {
   authScreen.hidden = true;
   appShell.hidden = false;
+  mobileNav.hidden = false;
   accountEmail.textContent = currentUser ? currentUser.email : '';
   adminPanelButton.hidden = currentUser?.role !== 'master';
   closeAdminPanel();
@@ -330,6 +332,7 @@ function clearAuthSession() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
   appShell.hidden = true;
   authScreen.hidden = false;
+  mobileNav.hidden = true;
 }
 
 function showAuthView(view, message = '') {
