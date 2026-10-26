@@ -84,6 +84,11 @@ const adminPanelButton = document.getElementById('adminPanelButton');
 const closeAdminButton = document.getElementById('closeAdminButton');
 const suggestionForm = document.getElementById('suggestionForm');
 const suggestionInput = document.getElementById('suggestionInput');
+const suggestionDialog = document.getElementById('suggestionDialog');
+const suggestionMessage = document.getElementById('suggestionMessage');
+const openSuggestionButton = document.getElementById('openSuggestionButton');
+const closeSuggestionButton = document.getElementById('closeSuggestionButton');
+const cancelSuggestionButton = document.getElementById('cancelSuggestionButton');
 const adminUserForm = document.getElementById('adminUserForm');
 const adminSettingsForm = document.getElementById('adminSettingsForm');
 const subscriptionOptionForm = document.getElementById('subscriptionOptionForm');
@@ -132,6 +137,18 @@ function initialize() {
   setupMasterForm.addEventListener('submit', handleBootstrapSubmit);
   showSetupButton.addEventListener('click', () => showAuthView('setupMaster'));
   suggestionForm.addEventListener('submit', handleSuggestionSubmit);
+  openSuggestionButton.addEventListener('click', () => {
+    suggestionMessage.hidden = true;
+    suggestionMessage.textContent = '';
+    suggestionMessage.classList.remove('error');
+    suggestionDialog.showModal();
+    suggestionInput.focus();
+  });
+  closeSuggestionButton.addEventListener('click', () => suggestionDialog.close());
+  cancelSuggestionButton.addEventListener('click', () => suggestionDialog.close());
+  suggestionDialog.addEventListener('click', (event) => {
+    if (event.target === suggestionDialog) suggestionDialog.close();
+  });
   adminUserForm.addEventListener('submit', handleAdminUserSubmit);
   adminSettingsForm.addEventListener('submit', handleAdminSettingsSubmit);
   subscriptionOptionForm.addEventListener('submit', handleSubscriptionOptionSubmit);
@@ -442,15 +459,21 @@ async function handleSuggestionSubmit(event) {
   event.preventDefault();
   const button = suggestionForm.querySelector('button[type="submit"]');
   button.disabled = true;
+  suggestionMessage.hidden = true;
+  suggestionMessage.textContent = '';
+  suggestionMessage.classList.remove('error');
   try {
     const result = await apiRequest('suggestion', {
       method: 'POST',
       body: { message: suggestionInput.value.trim() }
     });
     suggestionForm.reset();
+    suggestionDialog.close();
     showAppNotice(result.message);
   } catch (error) {
-    showAppNotice(error.message, true);
+    suggestionMessage.textContent = error.message;
+    suggestionMessage.classList.add('error');
+    suggestionMessage.hidden = false;
   } finally {
     button.disabled = false;
   }

@@ -124,6 +124,7 @@
             <button class="button button-report" type="button" id="reportButton">
               <span aria-hidden="true">↓</span> Descargar reporte PDF
             </button>
+            <button class="button button-reset" type="button" id="openSuggestionButton">Enviar sugerencia</button>
             <button class="button button-install install-button" type="button" id="installButton" hidden>Instalar app</button>
             <button class="button button-reset" type="button" id="adminPanelButton" hidden>Administración</button>
             <div class="account-menu"><span id="accountEmail"></span><button class="button button-reset" type="button" id="logoutButton">Cerrar sesión</button></div>
@@ -221,9 +222,18 @@
             </form>
           </section>
 
+          <section class="panel budget-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">ESTE MES</p><h2>Gasto por categoría</h2></div>
+            </div>
+            <div id="budgetList" class="budget-list" aria-live="polite"></div>
+          </section>
+        </section>
+
+        <section class="tools-grid" id="planning" aria-label="Categorías y planificación">
           <section class="panel categories-panel">
             <div class="panel-header">
-              <div><p class="eyebrow">A TU MANERA</p><h2>Tus categorías</h2></div>
+              <div><p class="eyebrow">ORGANIZA</p><h2>Tus categorías</h2></div>
             </div>
             <p class="section-description">Agrega categorías además de las sugeridas. Solo tú podrás verlas.</p>
             <form id="categoryForm" class="category-form">
@@ -233,15 +243,6 @@
             <div id="customCategoryList" class="custom-category-list" aria-live="polite"></div>
           </section>
 
-          <section class="panel budget-panel">
-            <div class="panel-header">
-              <div><p class="eyebrow">ESTE MES</p><h2>Gasto por categoría</h2></div>
-            </div>
-            <div id="budgetList" class="budget-list" aria-live="polite"></div>
-          </section>
-        </section>
-
-        <section class="goals-grid" id="goals">
           <article class="panel goal-form-panel">
             <div class="panel-header">
               <div><p class="eyebrow">PLANEA A FUTURO</p><h2>Crear una meta</h2></div>
@@ -259,6 +260,9 @@
               <button class="button button-primary wide" type="submit">Guardar meta</button>
             </form>
           </article>
+        </section>
+
+        <section class="goals-grid" id="goals">
           <article class="panel goals-panel">
             <div class="panel-header">
               <div><p class="eyebrow">PASO A PASO</p><h2>Tus metas</h2></div>
@@ -288,16 +292,6 @@
             </table>
           </div>
         </section>
-        <section class="panel suggestion-panel" id="suggestions">
-          <div class="panel-header"><div><p class="eyebrow">TU OPINIÓN CUENTA</p><h2>Comparte una sugerencia</h2></div></div>
-          <p class="section-description">Cuéntanos qué podríamos mejorar. Solo el equipo administrador revisa estos mensajes.</p>
-          <form id="suggestionForm" class="suggestion-form">
-            <label for="suggestionInput">Tu sugerencia</label>
-            <textarea id="suggestionInput" maxlength="1200" rows="4" required></textarea>
-            <button class="button button-primary" type="submit">Enviar sugerencia</button>
-          </form>
-        </section>
-
         <section class="admin-panel" id="adminPanel" hidden>
           <div class="panel admin-heading">
             <div><p class="eyebrow">ACCESO MAESTRO</p><h2>Administración de la aplicación</h2></div>
@@ -375,6 +369,22 @@
         <footer class="page-footer">Hecho para entender mejor tu dinero. <span id="publicContactEmail" hidden></span><a href="https://softhard.pe" target="_blank" rel="noopener noreferrer">SoftHard Peru</a></footer>
       </main>
     </div>
+    <dialog class="suggestion-dialog" id="suggestionDialog" aria-labelledby="suggestionDialogTitle">
+      <div class="suggestion-dialog-header">
+        <div><p class="eyebrow">TU OPINIÓN CUENTA</p><h2 id="suggestionDialogTitle">Comparte una sugerencia</h2></div>
+        <button class="button button-reset suggestion-close" id="closeSuggestionButton" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <p class="section-description">Cuéntanos qué podríamos mejorar. Solo el equipo administrador revisa estos mensajes.</p>
+      <p class="auth-message" id="suggestionMessage" role="status" aria-live="polite" hidden></p>
+      <form id="suggestionForm" class="suggestion-form">
+        <label for="suggestionInput">Tu sugerencia</label>
+        <textarea id="suggestionInput" maxlength="1200" rows="5" required></textarea>
+        <div class="suggestion-dialog-actions">
+          <button class="button button-quiet" id="cancelSuggestionButton" type="button">Cancelar</button>
+          <button class="button button-primary" type="submit">Enviar sugerencia</button>
+        </div>
+      </form>
+    </dialog>
     <nav class="mobile-nav" aria-label="Navegación móvil" hidden>
       <a href="#overview"><span aria-hidden="true">⌂</span>Resumen</a>
       <a href="#capture"><span aria-hidden="true">＋</span>Agregar</a>
