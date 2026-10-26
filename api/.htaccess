@@ -1,4 +1,5 @@
 Options -Indexes
+SetEnvIfNoCase Authorization "^(.+)$" HTTP_AUTHORIZATION=$1
 <Files "config.local.php">
   Require all denied
 </Files>
