@@ -70,6 +70,7 @@ button { touch-action: manipulation; }
 .auth-footer { margin: 12px 0 0; color: #89948c; font-size: .7rem; text-align: center; }
 .auth-footer a { color: var(--green); font-weight: 700; text-decoration: none; }
 .auth-footer a:hover { text-decoration: underline; }
+.auth-install-help { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.5; text-align: center; }
 .auth-message, .auth-config-note, .app-notice { padding: 11px 13px; border: 1px solid #d7e9da; border-radius: 10px; background: #eff7ef; color: var(--green-dark); font-size: .78rem; line-height: 1.45; }
 .auth-message { margin: 0 0 15px; }
 .auth-config-note { margin: 12px 0; border-color: #f0dfc4; background: #fff7e9; color: #8b5b16; }

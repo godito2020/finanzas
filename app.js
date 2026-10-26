@@ -21,6 +21,8 @@ const goalsList = document.getElementById('goalsList');
 const monthlyChart = document.getElementById('monthlyChart');
 const categoryChart = document.getElementById('categoryChart');
 const installButton = document.getElementById('installButton');
+const authInstallButton = document.getElementById('authInstallButton');
+const authInstallHelp = document.getElementById('authInstallHelp');
 const reportButton = document.getElementById('reportButton');
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -115,6 +117,7 @@ function initialize() {
   filterMonthInput.addEventListener('change', renderTable);
   searchInput.addEventListener('input', renderTable);
   installButton.addEventListener('click', handleInstallClick);
+  authInstallButton.addEventListener('click', handleInstallClick);
   reportButton.addEventListener('click', handleReportClick);
   categoryForm.addEventListener('submit', handleCategorySubmit);
   loginForm.addEventListener('submit', handleLoginSubmit);
@@ -143,6 +146,7 @@ function initialize() {
   });
 
   installButton.hidden = true;
+  authInstallButton.hidden = isAppInstalled() || !isMobileBrowser();
   authScreen.hidden = false;
   appShell.hidden = true;
   mobileNav.hidden = true;
@@ -179,6 +183,8 @@ function initialize() {
     }
     deferredInstallPrompt = event;
     installButton.hidden = false;
+    authInstallButton.hidden = false;
+    authInstallHelp.hidden = true;
   });
 
   window.addEventListener('appinstalled', () => {
@@ -903,6 +909,8 @@ function isAppInstalled() {
 function hideInstallButton() {
   deferredInstallPrompt = null;
   installButton.hidden = true;
+  authInstallButton.hidden = true;
+  authInstallHelp.hidden = true;
 }
 
 function updateInstallButtonVisibility() {
@@ -1128,9 +1136,23 @@ function blobToBase64(blob) {
   });
 }
 
+function isMobileBrowser() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 async function handleInstallClick() {
-  if (!deferredInstallPrompt || isAppInstalled()) {
+  if (isAppInstalled()) {
     hideInstallButton();
+    return;
+  }
+
+  if (!deferredInstallPrompt) {
+    authInstallHelp.textContent = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+      ? 'En Safari, toca Compartir y elige “Añadir a pantalla de inicio”.'
+      : 'Abre el menú del navegador y elige “Instalar app” o “Añadir a pantalla principal”.';
+    authInstallHelp.hidden = false;
     return;
   }
 

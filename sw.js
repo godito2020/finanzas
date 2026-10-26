@@ -1,4 +1,4 @@
-const CACHE_NAME = 'finanza-cache-v4';
+const CACHE_NAME = 'finanza-cache-v5';
 const APP_SHELL = [
   './',
   './index.html',
@@ -6,6 +6,8 @@ const APP_SHELL = [
   './app.bundle.js',
   './manifest.webmanifest',
   './icon.svg',
+  './icon-192.png',
+  './icon-512.png',
   './api-config.js',
   './vendor/jspdf.umd.min.js'
 ];

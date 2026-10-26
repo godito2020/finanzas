@@ -4,7 +4,16 @@ const esbuild = require('esbuild');
 
 const projectRoot = path.resolve(__dirname, '..');
 const webOutput = path.join(projectRoot, 'www');
-const webFiles = ['index.html', 'styles.css', 'manifest.webmanifest', 'sw.js', 'icon.svg', 'api-config.js'];
+const webFiles = [
+  'index.html',
+  'styles.css',
+  'manifest.webmanifest',
+  'sw.js',
+  'icon.svg',
+  'icon-192.png',
+  'icon-512.png',
+  'api-config.js'
+];
 
 fs.mkdirSync(webOutput, { recursive: true });
 
