@@ -130,6 +130,9 @@ function database(): PDO
             category TEXT NOT NULL,
             type TEXT NOT NULL CHECK(type IN (\'income\', \'expense\')),
             amount REAL NOT NULL CHECK(amount > 0),
+            currency TEXT NOT NULL DEFAULT \'PEN\',
+            exchange_rate REAL NOT NULL DEFAULT 1 CHECK(exchange_rate > 0),
+            base_currency TEXT NOT NULL DEFAULT \'PEN\',
             date TEXT NOT NULL,
             created_at INTEGER NOT NULL
         );
@@ -140,6 +143,7 @@ function database(): PDO
             name TEXT NOT NULL,
             target REAL NOT NULL CHECK(target > 0),
             current REAL NOT NULL CHECK(current >= 0),
+            currency TEXT NOT NULL DEFAULT \'PEN\',
             due_date TEXT NOT NULL,
             created_at INTEGER NOT NULL
         );
@@ -177,7 +181,17 @@ function database(): PDO
             ends_at TEXT,
             created_at INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS subscription_assignments_user ON subscription_assignments(user_id)'
+        CREATE INDEX IF NOT EXISTS subscription_assignments_user ON subscription_assignments(user_id);
+        CREATE TABLE IF NOT EXISTS ai_subscription_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT \'pending\' CHECK(status IN (\'pending\', \'paid\', \'rejected\')),
+            requested_at INTEGER NOT NULL,
+            processed_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS ai_subscription_requests_status ON ai_subscription_requests(status, requested_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS ai_subscription_requests_one_pending
+            ON ai_subscription_requests(user_id) WHERE status = \'pending\''
     );
     $userColumns = array_column($connection->query('PRAGMA table_info(users)')->fetchAll(), 'name');
     if (!in_array('role', $userColumns, true)) {
@@ -185,6 +199,20 @@ function database(): PDO
     }
     if (!in_array('is_active', $userColumns, true)) {
         $connection->exec('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+    }
+    $transactionColumns = array_column($connection->query('PRAGMA table_info(transactions)')->fetchAll(), 'name');
+    if (!in_array('currency', $transactionColumns, true)) {
+        $connection->exec("ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'PEN'");
+    }
+    if (!in_array('exchange_rate', $transactionColumns, true)) {
+        $connection->exec('ALTER TABLE transactions ADD COLUMN exchange_rate REAL NOT NULL DEFAULT 1');
+    }
+    if (!in_array('base_currency', $transactionColumns, true)) {
+        $connection->exec("ALTER TABLE transactions ADD COLUMN base_currency TEXT NOT NULL DEFAULT 'PEN'");
+    }
+    $goalColumns = array_column($connection->query('PRAGMA table_info(goals)')->fetchAll(), 'name');
+    if (!in_array('currency', $goalColumns, true)) {
+        $connection->exec("ALTER TABLE goals ADD COLUMN currency TEXT NOT NULL DEFAULT 'PEN'");
     }
 
     return $connection;
@@ -353,16 +381,241 @@ function sendRecoveryCode(string $email, string $code): void
     $mail->send();
 }
 
-function validateTransaction(array $data): array
+function validateTransaction(array $data, ?string $baseCurrency = null): array
 {
     $description = requiredString($data, 'description', 80);
     $category = requiredString($data, 'category', 40);
     $type = $data['type'] ?? null;
     $amount = filter_var($data['amount'] ?? null, FILTER_VALIDATE_FLOAT);
-    if (!in_array($type, ['income', 'expense'], true) || $amount === false || !is_finite((float) $amount) || $amount <= 0 || $amount > 100000000000) {
+    $baseCurrency ??= appSetting('base_currency', 'PEN');
+    $currency = $data['currency'] ?? $baseCurrency;
+    if (!in_array($baseCurrency, ['PEN', 'USD', 'EUR'], true) ||
+        !in_array($type, ['income', 'expense'], true) || $amount === false || !is_finite((float) $amount) || $amount <= 0 || $amount > 100000000000) {
         throw new ApiError(422, 'El tipo de movimiento o el monto no son válidos.');
     }
-    return [$description, $category, $type, (float) $amount, validDateString($data, 'date')];
+    if (!in_array($currency, ['PEN', 'USD', 'EUR'], true)) {
+        throw new ApiError(422, 'La moneda seleccionada no es válida.');
+    }
+    $exchangeRate = $currency === $baseCurrency
+        ? 1.0
+        : filter_var($data['exchangeRate'] ?? null, FILTER_VALIDATE_FLOAT);
+    if ($exchangeRate === false || !is_finite((float) $exchangeRate) || $exchangeRate <= 0 || $exchangeRate > 100000) {
+        throw new ApiError(422, 'Ingresa un tipo de cambio válido en soles.');
+    }
+    return [$description, $category, $type, (float) $amount, $currency, (float) $exchangeRate, $baseCurrency, validDateString($data, 'date')];
+}
+
+function userHasAiAssistant(array $user): bool
+{
+    if (($user['role'] ?? '') === 'master') {
+        return true;
+    }
+    $statement = database()->prepare(
+        "SELECT subscription_options.features_json
+         FROM subscription_assignments
+         JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
+         WHERE subscription_assignments.user_id = ? AND subscription_assignments.status = 'active'
+           AND subscription_options.active = 1 AND subscription_assignments.starts_at <= ?
+           AND (subscription_assignments.ends_at IS NULL OR subscription_assignments.ends_at >= ?)"
+    );
+    $today = date('Y-m-d');
+    $statement->execute([(int) $user['id'], $today, $today]);
+    foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $featuresJson) {
+        $features = json_decode((string) $featuresJson, true);
+        if (is_array($features) && in_array('Registro inteligente con IA', $features, true)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function extractAiTransaction(array $input, int $userId): array
+{
+    $source = $input['source'] ?? '';
+    $parts = [];
+    $image = null;
+    if ($source === 'voice') {
+        $transcript = requiredString($input, 'transcript', 500);
+        $parts[] = ['text' => "Interpreta esta descripción hablada para registrar un movimiento financiero. No inventes datos que no aparezcan. found_total debe ser true solamente si el monto se dijo de forma clara; si falta, amount será 0 y found_total false. Identifica la moneda si se menciona y devuelve currency como PEN, USD o EUR; si no se especifica, usa " . appSetting('base_currency', 'PEN') . ". Si no se menciona una fecha, usa hoy (" . date('Y-m-d') . "). Devuelve JSON con found_total (booleano), type (income o expense), amount (número), currency (PEN, USD o EUR), description (máximo 80 caracteres, conserva el detalle útil), category (elige una categoría de la lista), y date (YYYY-MM-DD). Categorías: " . json_encode(aiTransactionCategories($userId), JSON_UNESCAPED_UNICODE) . ". Texto: " . $transcript];
+    } elseif ($source === 'receipt') {
+        $upload = $_FILES['image'] ?? null;
+        if (!is_array($upload) || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            throw new ApiError(422, 'Selecciona una foto válida del comprobante.');
+        }
+        if (($upload['size'] ?? 0) < 1 || $upload['size'] > 2097152) {
+            throw new ApiError(413, 'La foto debe pesar como máximo 2 MB.');
+        }
+        $mimeType = (new finfo(FILEINFO_MIME_TYPE))->file((string) $upload['tmp_name']);
+        if (!in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+            throw new ApiError(422, 'Usa una imagen JPG, PNG o WebP.');
+        }
+        $image = file_get_contents((string) $upload['tmp_name']);
+        if ($image === false) {
+            throw new ApiError(422, 'No se pudo leer la foto seleccionada.');
+        }
+        $categories = aiTransactionCategories($userId);
+        $parts[] = ['text' => "Responde en formato json válido con los campos found_total, amount, currency, description, category, date y type. Analiza la imagen completa, que puede ser una captura de Yape u otro comprobante de pago. Identifica la moneda del importe y devuelve currency como PEN, USD o EUR; si no es visible, usa " . appSetting('base_currency', 'PEN') . ". Para una captura de Yape con el texto “¡Yapeaste!”, registra un gasto (type=expense) y toma como amount el importe grande que aparece debajo de ese texto; no busques la palabra “total” si no aparece. El texto del mensaje/notificación indica el concepto y debe formar parte de description junto con el servicio o comercio (por ejemplo, “Yape - HBO”). No uses el nombre del destinatario como concepto si hay un mensaje que indique el motivo. En otros comprobantes, identifica el importe final realmente pagado; no confundas subtotal, impuestos, efectivo recibido, vuelto o un artículo individual. Conserva el valor y decimales visibles, pero devuelve amount como número. Si el importe se ve claramente, found_total=true incluso si el comprobante usa otra etiqueta, y no inventes importes. Si hay lista de productos, resume los conceptos legibles en description (hasta 80 caracteres). Si no hay importe legible, found_total=false y amount=0. date debe ser YYYY-MM-DD usando la fecha de la captura; si no aparece, usa hoy " . date('Y-m-d') . ". category debe ser exactamente una de estas: " . json_encode($categories, JSON_UNESCAPED_UNICODE) . ". Devuelve solo el objeto json, sin markdown ni texto adicional."];
+        $parts[] = ['inlineData' => ['mimeType' => $mimeType, 'data' => base64_encode($image)]];
+    } else {
+        throw new ApiError(422, 'El tipo de registro inteligente no es válido.');
+    }
+
+    $provider = appSetting('ai_provider', 'gemini');
+    if (!in_array($provider, ['gemini', 'groq'], true)) {
+        throw new ApiError(503, 'El proveedor de IA configurado no es válido. Revisa Administración → Configuración.');
+    }
+    $keySetting = $provider . '_api_key_encrypted';
+    $keyEnvironment = 'FINANZA_' . strtoupper($provider) . '_API_KEY';
+    $storedApiKey = appSetting($keySetting);
+    $apiKey = $storedApiKey !== '' ? decryptSetting($storedApiKey) : envValue($keyEnvironment);
+    if ($apiKey === '') {
+        throw new ApiError(503, 'Falta configurar la clave API del proveedor ' . strtoupper($provider) . ' en Administración → Configuración.');
+    }
+    if (!function_exists('curl_init')) {
+        throw new ApiError(503, 'El servidor no tiene habilitado cURL para conectar con el proveedor de IA.');
+    }
+
+    enforceRateLimit('ai-extraction:' . $userId, 30, 86400);
+    $responseProperties = [
+        'found_total' => ['type' => 'BOOLEAN'],
+        'amount' => ['type' => 'NUMBER'],
+        'currency' => ['type' => 'STRING', 'enum' => ['PEN', 'USD', 'EUR']],
+        'description' => ['type' => 'STRING'],
+        'category' => ['type' => 'STRING', 'enum' => aiTransactionCategories($userId)],
+        'date' => ['type' => 'STRING'],
+        'type' => ['type' => 'STRING', 'enum' => ['income', 'expense']]
+    ];
+    if ($provider === 'gemini') {
+        $payloadData = [
+            'contents' => [['parts' => $parts]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'responseSchema' => [
+                    'type' => 'OBJECT',
+                    'properties' => $responseProperties,
+                    'required' => array_keys($responseProperties)
+                ]
+            ]
+        ];
+        $endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+        $headers = ['Content-Type: application/json', 'x-goog-api-key: ' . $apiKey];
+    } else {
+        $prompt = $parts[0]['text'];
+        $content = [['type' => 'text', 'text' => $prompt]];
+        if ($source === 'receipt') {
+            $content[] = [
+                'type' => 'image_url',
+                'image_url' => ['url' => 'data:' . $mimeType . ';base64,' . base64_encode($image)]
+            ];
+        }
+        $payloadData = [
+            'model' => 'qwen/qwen3.8-27b',
+            'messages' => [['role' => 'user', 'content' => $content]],
+            'temperature' => 0.2,
+            'max_completion_tokens' => 500,
+            'response_format' => ['type' => 'json_object']
+        ];
+        $endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+        $headers = ['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey];
+    }
+    $payload = json_encode($payloadData, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    $curl = curl_init($endpoint);
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 35,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_POSTFIELDS => $payload
+    ]);
+    $response = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $curlErrorNumber = curl_errno($curl);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+    if ($response === false || $status < 200 || $status >= 300) {
+        $providerError = is_string($response) ? json_decode($response, true) : null;
+        $providerMessage = is_array($providerError) && is_string($providerError['error']['message'] ?? null)
+            ? mb_substr(preg_replace('/[\r\n\t]+/', ' ', $providerError['error']['message']), 0, 300)
+            : '';
+        error_log('Finanza ' . strtoupper($provider) . ' request failed; HTTP ' . $status .
+            ($curlError !== '' ? '; cURL ' . $curlErrorNumber . ': ' . $curlError : '') .
+            ($providerMessage !== '' ? '; provider: ' . $providerMessage : ''));
+        if ($status === 0) {
+            throw new ApiError(502, 'PHP no pudo conectarse a ' . strtoupper($provider) . '. Revisa la conexión saliente HTTPS (cURL/SSL) de Apache.');
+        }
+        if ($status === 401 || $status === 403) {
+            throw new ApiError(503, 'La clave de ' . strtoupper($provider) . ' no es válida o no tiene acceso. Contacta al administrador.');
+        }
+        if ($status === 404 && $provider === 'gemini') {
+            throw new ApiError(503, 'Gemini respondió 404: el modelo o endpoint no está disponible para esta solicitud. Revisa el proyecto asociado a la clave y la API Gemini habilitada, o selecciona Groq en Administración → Configuración.');
+        }
+        if ($status === 404 && $provider === 'groq') {
+            throw new ApiError(503, 'Groq no encontró el modelo seleccionado. Verifica que tu cuenta tenga acceso al modelo Qwen Vision o contacta al administrador.');
+        }
+        if ($status === 429) {
+            throw new ApiError(503, strtoupper($provider) . ' está temporalmente sin cuota. Inténtalo más tarde.');
+        }
+        if ($status === 400) {
+            throw new ApiError(422, 'No se pudo procesar esa imagen. Prueba con una foto nítida del comprobante completo.');
+        }
+        throw new ApiError(502, strtoupper($provider) . ' respondió con un error HTTP ' . $status . '. Revisa el registro de errores del servidor para ver el detalle.');
+    }
+
+    $decoded = json_decode($response, true);
+    if ($provider === 'gemini') {
+        $candidate = $decoded['candidates'][0] ?? null;
+        if (!is_array($candidate) || (!empty($candidate['finishReason']) && $candidate['finishReason'] !== 'STOP')) {
+            error_log('Finanza Gemini returned no usable candidate; finish reason: ' .
+                (string) ($candidate['finishReason'] ?? $decoded['promptFeedback']['blockReason'] ?? 'unknown'));
+            throw new ApiError(422, 'La IA no pudo leer el comprobante. Prueba una foto más cercana, nítida y con el total visible.');
+        }
+        $text = implode("\n", array_filter(array_map(
+            static fn(array $part): string => is_string($part['text'] ?? null) ? $part['text'] : '',
+            $candidate['content']['parts'] ?? []
+        )));
+    } else {
+        $text = $decoded['choices'][0]['message']['content'] ?? '';
+    }
+    $transaction = is_string($text) ? json_decode($text, true) : null;
+    if (!is_array($transaction)) {
+        throw new ApiError(422, 'La IA no pudo leer el comprobante. Prueba una foto más cercana, nítida y con el total visible.');
+    }
+    if ($source === 'receipt' && (empty($transaction['found_total']) || (float) ($transaction['amount'] ?? 0) <= 0)) {
+        throw new ApiError(422, 'No se encontró un total legible. Toma la foto más cerca y asegúrate de incluir el importe total.');
+    }
+    if ($source === 'voice' && (empty($transaction['found_total']) || (float) ($transaction['amount'] ?? 0) <= 0)) {
+        throw new ApiError(422, 'No se reconoció un monto claro en la voz. Repite la frase incluyendo el importe.');
+    }
+    $transaction['exchangeRate'] ??= 1;
+    [$description, $category, $type, $amount, $currency, $exchangeRate, $baseCurrency, $date] = validateTransaction($transaction);
+    $allowedCategories = aiTransactionCategories($userId);
+    $categoryWarning = !in_array($category, $allowedCategories, true);
+    if ($categoryWarning) {
+        $category = 'Otros';
+    }
+    return [
+        'transaction' => [
+            'description' => $description,
+            'category' => $category,
+            'type' => $type,
+            'amount' => $amount,
+            'currency' => $currency,
+            'exchangeRate' => $exchangeRate,
+            'baseCurrency' => $baseCurrency,
+            'amountInBaseCurrency' => round($amount * $exchangeRate, 2),
+            'date' => $date
+        ],
+        'categoryWarning' => $categoryWarning
+    ];
+}
+
+function aiTransactionCategories(int $userId): array
+{
+    $categories = ['Alimentación', 'Vivienda', 'Transporte', 'Salud', 'Entretenimiento', 'Educación', 'Ahorro', 'Ingresos', 'Otros'];
+    $statement = database()->prepare('SELECT name FROM categories WHERE user_id = ? ORDER BY name COLLATE NOCASE LIMIT 40');
+    $statement->execute([$userId]);
+    return array_values(array_unique(array_merge($categories, $statement->fetchAll(PDO::FETCH_COLUMN))));
 }
 
 function appSetting(string $key, string $default = ''): string
@@ -429,7 +682,8 @@ function publicBranding(): array
         'appName' => appSetting('app_name', 'Finanza'),
         'contactEmail' => appSetting('contact_email'),
         'logoUrl' => appSetting('logo_url'),
-        'faviconUrl' => appSetting('favicon_url')
+        'faviconUrl' => appSetting('favicon_url'),
+        'baseCurrency' => appSetting('base_currency', 'PEN')
     ];
 }
 
@@ -651,9 +905,54 @@ function handleRequest(string $action, string $method, array $data): array
         return ['message' => 'Gracias por compartir tu sugerencia.'];
     }
 
+    if ($action === 'ai-assistant-status' && $method === 'GET') {
+        $request = $db->prepare(
+            "SELECT status FROM ai_subscription_requests WHERE user_id = ? ORDER BY requested_at DESC, id DESC LIMIT 1"
+        );
+        $request->execute([$userId]);
+        return [
+            'available' => userHasAiAssistant($user),
+            'isMaster' => ($user['role'] ?? '') === 'master',
+            'requestStatus' => $request->fetchColumn() ?: null
+        ];
+    }
+    if ($action === 'ai-subscription-request' && $method === 'POST') {
+        if (($user['role'] ?? '') === 'master' || userHasAiAssistant($user)) {
+            throw new ApiError(409, 'Tu cuenta ya tiene acceso al registro inteligente.');
+        }
+        enforceRateLimit('ai-subscription-request:' . $userId, 3, 2592000);
+        $pending = $db->prepare(
+            "SELECT 1 FROM ai_subscription_requests WHERE user_id = ? AND status = 'pending' LIMIT 1"
+        );
+        $pending->execute([$userId]);
+        if ($pending->fetchColumn()) {
+            throw new ApiError(409, 'Ya tienes una solicitud pendiente de revisión.');
+        }
+        try {
+            $db->prepare(
+                "INSERT INTO ai_subscription_requests (user_id, status, requested_at) VALUES (?, 'pending', ?)"
+            )->execute([$userId, time()]);
+        } catch (PDOException $error) {
+            if (str_contains(strtolower($error->getMessage()), 'unique')) {
+                throw new ApiError(409, 'Ya tienes una solicitud pendiente de revisión.');
+            }
+            throw $error;
+        }
+        return ['message' => 'Solicitud enviada. El administrador revisará el pago y habilitará el servicio.'];
+    }
+    if ($action === 'ai-transaction' && $method === 'POST') {
+        if (!userHasAiAssistant($user)) {
+            throw new ApiError(403, 'El registro inteligente está disponible para el plan que incluye “Registro inteligente con IA”.');
+        }
+        $input = str_starts_with(strtolower($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/form-data')
+            ? $_POST
+            : $data;
+        return extractAiTransaction($input, $userId);
+    }
+
     $masterActions = [
         'admin-users', 'admin-settings', 'admin-upload', 'admin-suggestions',
-        'admin-subscriptions', 'admin-assignments'
+        'admin-subscriptions', 'admin-assignments', 'admin-ai-requests'
     ];
     if (in_array($action, $masterActions, true)) {
         requireMaster($user);
@@ -734,6 +1033,8 @@ function handleRequest(string $action, string $method, array $data): array
         if ($action === 'admin-settings' && $method === 'GET') {
             $storedPassword = appSetting('smtp_password_encrypted');
             $smtpPasswordSet = $storedPassword !== '' || envValue('FINANZA_SMTP_PASSWORD') !== '';
+            $storedGeminiKey = appSetting('gemini_api_key_encrypted');
+            $storedGroqKey = appSetting('groq_api_key_encrypted');
             return ['settings' => publicBranding() + [
                 'smtpHost' => appSetting('smtp_host', envValue('FINANZA_SMTP_HOST')),
                 'smtpPort' => appSetting('smtp_port', envValue('FINANZA_SMTP_PORT', '587')),
@@ -741,12 +1042,16 @@ function handleRequest(string $action, string $method, array $data): array
                 'smtpUser' => appSetting('smtp_user', envValue('FINANZA_SMTP_USER')),
                 'mailFrom' => appSetting('smtp_from_email', envValue('FINANZA_MAIL_FROM')),
                 'mailFromName' => appSetting('smtp_from_name', envValue('FINANZA_MAIL_FROM_NAME', 'Finanza')),
-                'smtpPasswordSet' => $smtpPasswordSet
+                'smtpPasswordSet' => $smtpPasswordSet,
+                'aiProvider' => appSetting('ai_provider', 'gemini'),
+                'geminiApiKeySet' => $storedGeminiKey !== '' || envValue('FINANZA_GEMINI_API_KEY') !== '',
+                'groqApiKeySet' => $storedGroqKey !== '' || envValue('FINANZA_GROQ_API_KEY') !== ''
             ]];
         }
         if ($action === 'admin-settings' && $method === 'PUT') {
             $appName = requiredString($data, 'appName', 60);
             $contactEmail = trim((string) ($data['contactEmail'] ?? ''));
+            $baseCurrency = $data['baseCurrency'] ?? 'PEN';
             if ($contactEmail !== '' && (!filter_var($contactEmail, FILTER_VALIDATE_EMAIL) || strlen($contactEmail) > 254)) {
                 throw new ApiError(422, 'El correo de contacto no es válido.');
             }
@@ -757,11 +1062,18 @@ function handleRequest(string $action, string $method, array $data): array
             $mailFrom = trim((string) ($data['mailFrom'] ?? ''));
             $mailFromName = trim((string) ($data['mailFromName'] ?? $appName));
             $smtpPassword = $data['smtpPassword'] ?? '';
+            $geminiApiKey = $data['geminiApiKey'] ?? '';
+            $groqApiKey = $data['groqApiKey'] ?? '';
+            $aiProvider = $data['aiProvider'] ?? 'gemini';
             $hasSmtpSettings = $smtpHost !== '' || $smtpUser !== '' || $mailFrom !== '' || $smtpPassword !== '';
-            if (!is_string($smtpPassword) || strlen($smtpPassword) > 500 ||
+            if (!in_array($baseCurrency, ['PEN', 'USD', 'EUR'], true) ||
+                !is_string($smtpPassword) || strlen($smtpPassword) > 500 ||
+                !is_string($geminiApiKey) || strlen($geminiApiKey) > 500 ||
+                !is_string($groqApiKey) || strlen($groqApiKey) > 500 ||
+                !in_array($aiProvider, ['gemini', 'groq'], true) ||
                 !preg_match('/^[0-9]{1,5}$/', $smtpPort) || (int) $smtpPort < 1 || (int) $smtpPort > 65535 ||
                 !in_array($smtpEncryption, ['tls', 'ssl', ''], true) || strlen($mailFromName) > 100) {
-                throw new ApiError(422, 'Revisa la configuración SMTP.');
+                throw new ApiError(422, 'Revisa la configuración del correo y del proveedor de IA.');
             }
             if ($hasSmtpSettings && ($smtpHost === '' || $smtpUser === '' || !filter_var($mailFrom, FILTER_VALIDATE_EMAIL))) {
                 throw new ApiError(422, 'Completa el servidor, usuario y correo remitente SMTP.');
@@ -776,11 +1088,20 @@ function handleRequest(string $action, string $method, array $data): array
             if ($smtpPassword !== '' && strlen(envValue('FINANZA_SETTINGS_ENCRYPTION_KEY')) < 32) {
                 throw new ApiError(422, 'Configura la clave de cifrado del servidor antes de guardar la contraseña SMTP.');
             }
+            if ($geminiApiKey !== '' && strlen(envValue('FINANZA_SETTINGS_ENCRYPTION_KEY')) < 32) {
+                throw new ApiError(422, 'Configura la clave de cifrado del servidor antes de guardar claves de IA.');
+            }
+            if ($groqApiKey !== '' && strlen(envValue('FINANZA_SETTINGS_ENCRYPTION_KEY')) < 32) {
+                throw new ApiError(422, 'Configura la clave de cifrado del servidor antes de guardar claves de IA.');
+            }
             $encryptedPassword = $smtpPassword !== '' ? encryptSetting($smtpPassword) : null;
+            $encryptedGeminiKey = $geminiApiKey !== '' ? encryptSetting(trim($geminiApiKey)) : null;
+            $encryptedGroqKey = $groqApiKey !== '' ? encryptSetting(trim($groqApiKey)) : null;
             $db->beginTransaction();
             try {
                 saveAppSetting('app_name', $appName);
                 saveAppSetting('contact_email', $contactEmail);
+                saveAppSetting('base_currency', $baseCurrency);
                 if ($hasSmtpSettings) {
                     saveAppSetting('smtp_host', $smtpHost);
                     saveAppSetting('smtp_port', $smtpPort);
@@ -792,6 +1113,13 @@ function handleRequest(string $action, string $method, array $data): array
                         saveAppSetting('smtp_password_encrypted', $encryptedPassword);
                     }
                 }
+                if ($encryptedGeminiKey !== null) {
+                    saveAppSetting('gemini_api_key_encrypted', $encryptedGeminiKey);
+                }
+                if ($encryptedGroqKey !== null) {
+                    saveAppSetting('groq_api_key_encrypted', $encryptedGroqKey);
+                }
+                saveAppSetting('ai_provider', $aiProvider);
                 $db->commit();
             } catch (Throwable $error) {
                 $db->rollBack();
@@ -862,7 +1190,21 @@ function handleRequest(string $action, string $method, array $data): array
             }
             unset($assignment);
             $users = $db->query("SELECT id, name, email FROM users WHERE role = 'user' ORDER BY name")->fetchAll();
-            return ['options' => $options, 'assignments' => $assignments, 'users' => $users];
+            $aiRequests = $db->query(
+                'SELECT ai_subscription_requests.id, ai_subscription_requests.user_id AS userId,
+                        ai_subscription_requests.status, ai_subscription_requests.requested_at AS requestedAt,
+                        users.name, users.email
+                 FROM ai_subscription_requests
+                 JOIN users ON users.id = ai_subscription_requests.user_id
+                 ORDER BY ai_subscription_requests.requested_at DESC LIMIT 500'
+            )->fetchAll();
+            foreach ($aiRequests as &$request) {
+                $request['id'] = (int) $request['id'];
+                $request['userId'] = (int) $request['userId'];
+                $request['requestedAt'] = (int) $request['requestedAt'];
+            }
+            unset($request);
+            return ['options' => $options, 'assignments' => $assignments, 'users' => $users, 'aiRequests' => $aiRequests];
         }
         if ($action === 'admin-subscriptions' && in_array($method, ['POST', 'PUT'], true)) {
             $name = requiredString($data, 'name', 60);
@@ -971,6 +1313,61 @@ function handleRequest(string $action, string $method, array $data): array
             }
             return ['message' => 'Asignación eliminada.'];
         }
+        if ($action === 'admin-ai-requests' && $method === 'PUT') {
+            $requestId = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+            $decision = $data['decision'] ?? null;
+            if (!$requestId || !in_array($decision, ['paid', 'rejected'], true)) {
+                throw new ApiError(422, 'La decisión de la solicitud no es válida.');
+            }
+            $db->beginTransaction();
+            try {
+                $requestStatement = $db->prepare(
+                    "SELECT user_id FROM ai_subscription_requests WHERE id = ? AND status = 'pending'"
+                );
+                $requestStatement->execute([$requestId]);
+                $requestedUserId = $requestStatement->fetchColumn();
+                if ($requestedUserId === false) {
+                    throw new ApiError(404, 'La solicitud ya fue atendida o no existe.');
+                }
+                $db->prepare('UPDATE ai_subscription_requests SET status = ?, processed_at = ? WHERE id = ?')
+                    ->execute([$decision, time(), $requestId]);
+                if ($decision === 'paid') {
+                    $optionName = 'IA mensual - S/ 10';
+                    $features = json_encode(['Registro inteligente con IA'], JSON_UNESCAPED_UNICODE);
+                    $db->prepare(
+                        'INSERT INTO subscription_options (name, description, features_json, active, created_at)
+                         VALUES (?, ?, ?, 1, ?)
+                         ON CONFLICT(name) DO UPDATE SET description = excluded.description,
+                         features_json = excluded.features_json, active = 1'
+                    )->execute([$optionName, 'Registro inteligente con IA por S/ 10 al mes. Renovación manual.', $features, time()]);
+                    $optionStatement = $db->prepare('SELECT id FROM subscription_options WHERE name = ?');
+                    $optionStatement->execute([$optionName]);
+                    $optionId = (int) $optionStatement->fetchColumn();
+                    $today = date('Y-m-d');
+                    $latest = $db->prepare(
+                        "SELECT MAX(ends_at) FROM subscription_assignments
+                         WHERE user_id = ? AND option_id = ? AND status = 'active' AND ends_at >= ?"
+                    );
+                    $latest->execute([(int) $requestedUserId, $optionId, $today]);
+                    $currentEnd = $latest->fetchColumn();
+                    $startsAt = is_string($currentEnd) && $currentEnd >= $today
+                        ? date('Y-m-d', strtotime($currentEnd . ' +1 day'))
+                        : $today;
+                    $endsAt = date('Y-m-d', strtotime($startsAt . ' +30 days'));
+                    $db->prepare(
+                        "INSERT INTO subscription_assignments (user_id, option_id, status, starts_at, ends_at, created_at)
+                         VALUES (?, ?, 'active', ?, ?, ?)"
+                    )->execute([(int) $requestedUserId, $optionId, $startsAt, $endsAt, time()]);
+                }
+                $db->commit();
+            } catch (Throwable $error) {
+                $db->rollBack();
+                throw $error;
+            }
+            return ['message' => $decision === 'paid'
+                ? 'Pago confirmado y acceso habilitado por 30 días.'
+                : 'Solicitud rechazada.'];
+        }
         throw new ApiError(405, 'Método no permitido.');
     }
 
@@ -984,36 +1381,49 @@ function handleRequest(string $action, string $method, array $data): array
 
     if ($action === 'transactions' && $method === 'GET') {
         $statement = $db->prepare(
-            'SELECT id, description, category, type, amount, date FROM transactions
+            'SELECT id, description, category, type, amount, currency, exchange_rate AS exchangeRate,
+                    base_currency AS baseCurrency, ROUND(amount * exchange_rate, 2) AS amountInBaseCurrency, date FROM transactions
              WHERE user_id = ? ORDER BY date DESC, id DESC'
         );
         $statement->execute([$userId]);
         return ['transactions' => array_map(static function (array $row): array {
             $row['id'] = (string) $row['id'];
             $row['amount'] = (float) $row['amount'];
+            $row['exchangeRate'] = (float) $row['exchangeRate'];
+            $row['amountInBaseCurrency'] = (float) $row['amountInBaseCurrency'];
             return $row;
         }, $statement->fetchAll())];
     }
     if ($action === 'transactions' && in_array($method, ['POST', 'PUT'], true)) {
-        [$description, $category, $type, $amount, $date] = validateTransaction($data);
         if ($method === 'POST') {
+            [$description, $category, $type, $amount, $currency, $exchangeRate, $baseCurrency, $date] = validateTransaction($data);
             $statement = $db->prepare(
-                'INSERT INTO transactions (user_id, description, category, type, amount, date, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO transactions (user_id, description, category, type, amount, currency, exchange_rate, base_currency, date, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $statement->execute([$userId, $description, $category, $type, $amount, $date, time()]);
+            $statement->execute([$userId, $description, $category, $type, $amount, $currency, $exchangeRate, $baseCurrency, $date, time()]);
             return ['transaction' => ['id' => (string) $db->lastInsertId(), 'description' => $description,
-                'category' => $category, 'type' => $type, 'amount' => $amount, 'date' => $date]];
+                'category' => $category, 'type' => $type, 'amount' => $amount, 'currency' => $currency,
+                'exchangeRate' => $exchangeRate, 'baseCurrency' => $baseCurrency,
+                'amountInBaseCurrency' => round($amount * $exchangeRate, 2), 'date' => $date]];
         }
         $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
         if (!$id || $id < 1) {
             throw new ApiError(422, 'El movimiento no es válido.');
         }
+        $baseStatement = $db->prepare('SELECT base_currency FROM transactions WHERE id = ? AND user_id = ?');
+        $baseStatement->execute([$id, $userId]);
+        $baseCurrency = $baseStatement->fetchColumn();
+        if ($baseCurrency === false) {
+            throw new ApiError(404, 'No se encontró ese movimiento.');
+        }
+        [$description, $category, $type, $amount, $currency, $exchangeRate, $baseCurrency, $date] =
+            validateTransaction($data, (string) $baseCurrency);
         $statement = $db->prepare(
-            'UPDATE transactions SET description = ?, category = ?, type = ?, amount = ?, date = ?
+            'UPDATE transactions SET description = ?, category = ?, type = ?, amount = ?, currency = ?, exchange_rate = ?, date = ?
              WHERE id = ? AND user_id = ?'
         );
-        $statement->execute([$description, $category, $type, $amount, $date, $id, $userId]);
+        $statement->execute([$description, $category, $type, $amount, $currency, $exchangeRate, $date, $id, $userId]);
         if ($statement->rowCount() === 0) {
             $exists = $db->prepare('SELECT 1 FROM transactions WHERE id = ? AND user_id = ?');
             $exists->execute([$id, $userId]);
@@ -1022,7 +1432,9 @@ function handleRequest(string $action, string $method, array $data): array
             }
         }
         return ['transaction' => ['id' => (string) $id, 'description' => $description,
-            'category' => $category, 'type' => $type, 'amount' => $amount, 'date' => $date]];
+            'category' => $category, 'type' => $type, 'amount' => $amount, 'currency' => $currency,
+            'exchangeRate' => $exchangeRate, 'baseCurrency' => $baseCurrency,
+            'amountInBaseCurrency' => round($amount * $exchangeRate, 2), 'date' => $date]];
     }
     if ($action === 'transactions' && $method === 'DELETE') {
         $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
@@ -1079,7 +1491,7 @@ function handleRequest(string $action, string $method, array $data): array
 
     if ($action === 'goals' && $method === 'GET') {
         $statement = $db->prepare(
-            'SELECT id, name, target, current, due_date AS dueDate FROM goals
+            'SELECT id, name, target, current, currency, due_date AS dueDate FROM goals
              WHERE user_id = ? ORDER BY due_date ASC'
         );
         $statement->execute([$userId]);
@@ -1092,6 +1504,7 @@ function handleRequest(string $action, string $method, array $data): array
     }
     if ($action === 'goals' && $method === 'POST') {
         $name = requiredString($data, 'name', 60);
+        $currency = appSetting('base_currency', 'PEN');
         $target = filter_var($data['target'] ?? null, FILTER_VALIDATE_FLOAT);
         $current = filter_var($data['current'] ?? null, FILTER_VALIDATE_FLOAT);
         if ($target === false || $target <= 0 || $current === false || $current < 0 || !is_finite((float) $target) || !is_finite((float) $current)) {
@@ -1099,11 +1512,11 @@ function handleRequest(string $action, string $method, array $data): array
         }
         $dueDate = validDateString($data, 'dueDate');
         $statement = $db->prepare(
-            'INSERT INTO goals (user_id, name, target, current, due_date, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO goals (user_id, name, target, current, currency, due_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        $statement->execute([$userId, $name, $target, $current, $dueDate, time()]);
+        $statement->execute([$userId, $name, $target, $current, $currency, $dueDate, time()]);
         return ['goal' => ['id' => (string) $db->lastInsertId(), 'name' => $name,
-            'target' => (float) $target, 'current' => (float) $current, 'dueDate' => $dueDate]];
+            'target' => (float) $target, 'current' => (float) $current, 'currency' => $currency, 'dueDate' => $dueDate]];
     }
     if ($action === 'goals' && $method === 'DELETE') {
         $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);

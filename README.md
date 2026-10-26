@@ -4,7 +4,7 @@ Aplicación web/PWA y Android para registrar ingresos, gastos, categorías y met
 
 ## Requisitos del servidor
 
-- PHP 8.1 o posterior con `pdo_sqlite`, `mbstring` y `openssl`.
+- PHP 8.1 o posterior con `pdo_sqlite`, `mbstring`, `openssl`, `curl` y `fileinfo`.
 - Composer 2.
 - HTTPS para el sitio y el API.
 - Un servidor SMTP con credenciales para entregar los códigos de recuperación.
@@ -21,6 +21,7 @@ Aplicación web/PWA y Android para registrar ingresos, gastos, categorías y met
    - `FINANZA_SETTINGS_ENCRYPTION_KEY`: secreto aleatorio de al menos 32 caracteres, guardado fuera de la base de datos y del código.
    - `FINANZA_SMTP_HOST`, `FINANZA_SMTP_PORT`, `FINANZA_SMTP_ENCRYPTION`, `FINANZA_SMTP_USER`, `FINANZA_SMTP_PASSWORD`.
    - `FINANZA_MAIL_FROM` y, opcionalmente, `FINANZA_MAIL_FROM_NAME`.
+   - `FINANZA_GEMINI_API_KEY` y `FINANZA_GROQ_API_KEY`: claves opcionales para el asistente; también se pueden configurar desde **Administración → Configuración**. Solo se usan desde PHP y nunca se envían al navegador.
 4. Para la web, el API usa por defecto el mismo dominio bajo `/api/index.php`.
 5. Para Android, establece la URL pública HTTPS completa del API en `api-config.js`, por ejemplo `window.FINANZA_API_BASE_URL = 'https://finanzas.ejemplo.com/api/index.php';`, y vuelve a compilar/sincronizar. Agrega el origen de Capacitor (`https://localhost`) a `FINANZA_ALLOWED_ORIGINS`.
 
@@ -42,6 +43,8 @@ El archivo SQLite se crea al primer uso. Haz respaldos consistentes del archivo 
 5. Si guardas SMTP desde el panel, la contraseña se cifra con AES-256-GCM. Mantén `FINANZA_SETTINGS_ENCRYPTION_KEY` como secreto estable y respaldado de forma independiente: perderlo impide descifrar la contraseña guardada. Si no vas a administrar SMTP desde el panel, puedes continuar configurándolo solo con variables de entorno.
 6. La cuenta maestra puede administrar cuentas, marca, correo, sugerencias y opciones/asignaciones manuales de suscripción. Las suscripciones no procesan pagos.
 7. El servidor necesita permiso de escritura en `uploads/` para guardar imágenes de marca. El API acepta únicamente PNG, JPG y WebP de hasta 2 MB y genera nombres aleatorios; bloquea la ejecución de scripts en esa carpeta. En Nginx configura una regla equivalente.
+8. Para habilitar el registro con foto y voz, configura una o ambas claves (Gemini o Groq) desde **Administración → Configuración**, elige el proveedor activo y asegúrate de tener habilitados `curl` y `fileinfo` en PHP. La clave guardada en el panel se cifra con `FINANZA_SETTINGS_ENCRYPTION_KEY`; el usuario maestro tiene acceso sin suscripción. Los clientes ven la oferta Finanza Pro de S/ 10 mensuales; después de pagar por el medio que indique el administrador, solicitan activación. Desde **Opciones y suscripciones**, el maestro revisa las solicitudes y confirma manualmente el pago para habilitar 30 días; la renovación mensual también es manual, no hay cobro automático. El plan de IA se crea automáticamente con la característica `Registro inteligente con IA`. El navegador transcribe la voz cuando admite dictado; Finanza envía a Gemini o Groq la foto comprimida o el texto transcrito, no guarda esos archivos y exige que el usuario revise el movimiento antes de guardarlo. Groq usa el modelo multimodal `qwen/qwen3.8-27b`.
+9. En **Administración → Configuración → Moneda principal**, elige PEN, USD o EUR. Es la moneda predeterminada de movimientos y metas y la unidad de los resúmenes para todas las cuentas. Los registros anteriores conservan su moneda y no se convierten; al cambiar la moneda principal, los datos históricos en otra moneda se mantienen visibles y no se mezclan en los nuevos totales. Los movimientos ingresados en otra moneda requieren el tipo de cambio expresado en unidades de la moneda principal por unidad extranjera.
 
 ## Desarrollo local
 

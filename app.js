@@ -60,10 +60,30 @@ const newCategoryInput = document.getElementById('newCategoryInput');
 const customCategoryList = document.getElementById('customCategoryList');
 const typeInput = document.getElementById('typeInput');
 const amountInput = document.getElementById('amountInput');
+const currencyInput = document.getElementById('currencyInput');
+const exchangeRateField = document.getElementById('exchangeRateField');
+const exchangeRateInput = document.getElementById('exchangeRateInput');
+const exchangeRateHint = document.getElementById('exchangeRateHint');
+const currencyHistoryNotice = document.getElementById('currencyHistoryNotice');
 const dateInput = document.getElementById('dateInput');
 const cancelEditButton = document.getElementById('cancelEditButton');
 const transactionFormTitle = document.getElementById('transactionFormTitle');
 const submitButton = document.getElementById('submitButton');
+const openAiAssistantButton = document.getElementById('openAiAssistantButton');
+const aiAssistantDialog = document.getElementById('aiAssistantDialog');
+const aiAssistantTitle = document.getElementById('aiAssistantTitle');
+const closeAiAssistantButton = document.getElementById('closeAiAssistantButton');
+const cancelAiAssistantButton = document.getElementById('cancelAiAssistantButton');
+const aiAssistantStatus = document.getElementById('aiAssistantStatus');
+const aiAssistantTools = document.getElementById('aiAssistantTools');
+const aiPaidOffer = document.getElementById('aiPaidOffer');
+const aiRequestStatus = document.getElementById('aiRequestStatus');
+const requestAiAccessButton = document.getElementById('requestAiAccessButton');
+const aiReceiptInput = document.getElementById('aiReceiptInput');
+const aiReceiptPreview = document.getElementById('aiReceiptPreview');
+const analyzeReceiptButton = document.getElementById('analyzeReceiptButton');
+const aiTranscriptInput = document.getElementById('aiTranscriptInput');
+const startVoiceButton = document.getElementById('startVoiceButton');
 const filterTypeInput = document.getElementById('filterTypeInput');
 const filterCategoryInput = document.getElementById('filterCategoryInput');
 const filterMonthInput = document.getElementById('filterMonthInput');
@@ -99,6 +119,8 @@ let transactions = [];
 let goals = [];
 let categories = [];
 let editingTransactionId = null;
+let appBaseCurrency = 'PEN';
+let formBaseCurrency = 'PEN';
 let deferredInstallPrompt = null;
 let authToken = localStorage.getItem(AUTH_TOKEN_KEY) || '';
 let currentUser = null;
@@ -106,6 +128,11 @@ let apiBaseUrl = '';
 let adminUsers = [];
 let subscriptionOptions = [];
 let subscriptionUsers = [];
+let aiRecognition = null;
+let aiReceiptPreviewUrl = '';
+let aiVoiceRecognitionFailed = false;
+let aiVoiceCancelled = false;
+let aiAssistantAccess = { available: false, isMaster: false, requestStatus: null };
 let publicBrand = { appName: 'Finanza', logoUrl: '', faviconUrl: '' };
 
 initialize();
@@ -113,7 +140,31 @@ initialize();
 function initialize() {
   dateInput.value = getDateString(0);
   goalDateInput.value = getDateString(90);
+  formBaseCurrency = appBaseCurrency;
+  updateExchangeRateField();
   form.addEventListener('submit', handleSubmit);
+  currencyInput.addEventListener('change', () => {
+    if (currencyInput.value !== formBaseCurrency && exchangeRateInput.value === '1') {
+      exchangeRateInput.value = '';
+    }
+    updateExchangeRateField();
+  });
+  openAiAssistantButton.addEventListener('click', openAiAssistant);
+  requestAiAccessButton.addEventListener('click', requestAiSubscription);
+  closeAiAssistantButton.addEventListener('click', () => aiAssistantDialog.close());
+  cancelAiAssistantButton.addEventListener('click', () => aiAssistantDialog.close());
+  aiAssistantDialog.addEventListener('click', (event) => {
+    if (event.target === aiAssistantDialog) aiAssistantDialog.close();
+  });
+  aiAssistantDialog.addEventListener('close', () => {
+    if (aiRecognition) {
+      aiVoiceCancelled = true;
+      aiRecognition.stop();
+    }
+  });
+  aiReceiptInput.addEventListener('change', handleAiReceiptSelection);
+  analyzeReceiptButton.addEventListener('click', handleReceiptAnalysis);
+  startVoiceButton.addEventListener('click', startAiDictation);
   goalForm.addEventListener('submit', handleGoalSubmit);
   logoutButton.addEventListener('click', handleLogout);
   cancelEditButton.addEventListener('click', resetFormState);
@@ -187,6 +238,7 @@ function initialize() {
       ]);
       publicBrand = branding.settings;
       applyBranding(publicBrand);
+      applyBaseCurrency(publicBrand.baseCurrency);
       showSetupButton.hidden = !setup.available;
     } catch (error) {
       console.warn('No se pudo cargar la configuración pública.', error);
@@ -209,7 +261,12 @@ function initialize() {
   });
 
   window.addEventListener('pageshow', updateInstallButtonVisibility);
-  document.addEventListener('visibilitychange', updateInstallButtonVisibility);
+  document.addEventListener('visibilitychange', () => {
+    updateInstallButtonVisibility();
+    if (!document.hidden && authToken) {
+      refreshBaseCurrency();
+    }
+  });
 
   if (isNativePlatform() && !apiBaseUrl) {
     authConfigNote.hidden = false;
@@ -282,8 +339,9 @@ async function apiRequest(action, options = {}) {
 
   const url = new URL(apiBaseUrl, document.baseURI);
   url.searchParams.set('action', action);
+  const isFormData = options.body instanceof FormData;
   const headers = { Accept: 'application/json' };
-  if (options.body !== undefined) {
+  if (options.body !== undefined && !isFormData) {
     headers['Content-Type'] = 'application/json';
   }
   if (authToken) {
@@ -293,7 +351,7 @@ async function apiRequest(action, options = {}) {
   const response = await fetch(url.href, {
     method: options.method || 'GET',
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.body === undefined ? undefined : isFormData ? options.body : JSON.stringify(options.body),
     cache: 'no-store',
     credentials: 'omit'
   });
@@ -328,16 +386,37 @@ async function restoreSession() {
 }
 
 async function loadAccountData() {
-  const [transactionResult, goalResult, categoryResult] = await Promise.all([
+  const [transactionResult, goalResult, categoryResult, aiStatus, publicSettings] = await Promise.all([
     apiRequest('transactions'),
     apiRequest('goals'),
-    apiRequest('categories')
+    apiRequest('categories'),
+    apiRequest('ai-assistant-status'),
+    apiRequest('public-settings')
   ]);
   transactions = transactionResult.transactions;
   goals = goalResult.goals;
   categories = categoryResult.categories;
+  aiAssistantAccess = aiStatus;
+  applyBaseCurrency(publicSettings.settings.baseCurrency);
+  openAiAssistantButton.hidden = false;
+  openAiAssistantButton.textContent = aiStatus.isMaster
+    ? 'Registro inteligente'
+    : aiStatus.available
+      ? 'Registro inteligente Pro'
+      : 'Registro inteligente · S/ 10 al mes';
   renderCategories();
   render();
+}
+
+async function refreshBaseCurrency() {
+  try {
+    const result = await apiRequest('public-settings');
+    if (result.settings.baseCurrency !== appBaseCurrency) {
+      applyBaseCurrency(result.settings.baseCurrency);
+    }
+  } catch (error) {
+    console.warn('No se pudo actualizar la moneda principal.', error);
+  }
 }
 
 function showApp() {
@@ -514,6 +593,24 @@ async function loadAdminData() {
 function fillAdminSettings(settings) {
   document.getElementById('appNameInput').value = settings.appName || '';
   document.getElementById('contactEmailInput').value = settings.contactEmail || '';
+  document.getElementById('baseCurrencyInput').value = settings.baseCurrency || 'PEN';
+  applyBaseCurrency(settings.baseCurrency || 'PEN');
+  document.getElementById('aiProviderInput').value = settings.aiProvider || 'gemini';
+  document.getElementById('geminiApiKeyInput').value = '';
+  document.getElementById('geminiApiKeyInput').placeholder = settings.geminiApiKeySet
+    ? 'Configurada; escribe solo si deseas reemplazarla'
+    : 'Pega aquí la clave API de Gemini';
+  document.getElementById('groqApiKeyInput').value = '';
+  document.getElementById('groqApiKeyInput').placeholder = settings.groqApiKeySet
+    ? 'Configurada; escribe solo si deseas reemplazarla'
+    : 'Pega aquí la clave API de Groq';
+  const configuredProviders = [
+    settings.geminiApiKeySet ? 'Gemini' : '',
+    settings.groqApiKeySet ? 'Groq' : ''
+  ].filter(Boolean);
+  document.getElementById('aiProviderStatus').textContent = configuredProviders.length
+    ? `Claves configuradas: ${configuredProviders.join(' y ')}. Proveedor activo: ${settings.aiProvider === 'groq' ? 'Groq' : 'Gemini'}.`
+    : 'Configura al menos una clave del proveedor que quieras usar.';
   document.getElementById('smtpHostInput').value = settings.smtpHost || '';
   document.getElementById('smtpPortInput').value = settings.smtpPort || '587';
   document.getElementById('smtpEncryptionInput').value = settings.smtpEncryption || 'tls';
@@ -602,17 +699,24 @@ async function handleAdminSettingsSubmit(event) {
       body: {
         appName: document.getElementById('appNameInput').value.trim(),
         contactEmail: document.getElementById('contactEmailInput').value.trim(),
+        baseCurrency: document.getElementById('baseCurrencyInput').value,
         smtpHost: document.getElementById('smtpHostInput').value.trim(),
         smtpPort: document.getElementById('smtpPortInput').value,
         smtpEncryption: document.getElementById('smtpEncryptionInput').value,
         smtpUser: document.getElementById('smtpUserInput').value.trim(),
         smtpPassword: document.getElementById('smtpPasswordInput').value,
+        geminiApiKey: document.getElementById('geminiApiKeyInput').value.trim(),
+        groqApiKey: document.getElementById('groqApiKeyInput').value.trim(),
+        aiProvider: document.getElementById('aiProviderInput').value,
         mailFrom: document.getElementById('mailFromInput').value.trim(),
         mailFromName: document.getElementById('mailFromNameInput').value.trim()
       }
     });
     applyBranding(result.settings);
+    applyBaseCurrency(result.settings.baseCurrency);
     document.getElementById('smtpPasswordInput').value = '';
+    document.getElementById('geminiApiKeyInput').value = '';
+    document.getElementById('groqApiKeyInput').value = '';
     showAppNotice('Configuración guardada.');
     await loadAdminData();
   } catch (error) {
@@ -700,6 +804,38 @@ function renderSubscriptionData(data) {
   optionsSelect.innerHTML = '<option value="">Selecciona opción</option>' + data.options
     .filter((option) => option.active)
     .map((option) => `<option value="${option.id}">${escapeHtml(option.name)}</option>`).join('');
+  const aiRequestsList = document.getElementById('aiSubscriptionRequestsList');
+  const requestStatusLabels = { pending: 'Pendiente de pago/verificación', paid: 'Pago confirmado', rejected: 'Rechazada' };
+  if (!data.aiRequests.length) {
+    aiRequestsList.innerHTML = '<p class="empty-state">No hay solicitudes de registro inteligente.</p>';
+  } else {
+    aiRequestsList.innerHTML = data.aiRequests.map((request) => `
+      <div class="admin-record ai-request-record" data-request-id="${request.id}">
+        <div><strong>${escapeHtml(request.name)} · ${escapeHtml(request.email)}</strong><small>${requestStatusLabels[request.status]} · ${new Date(request.requestedAt * 1000).toLocaleString('es-PE')}</small></div>
+        ${request.status === 'pending' ? '<button class="button button-primary ai-request-paid" type="button">Confirmar pago y habilitar 30 días</button><button class="button button-reset ai-request-reject" type="button">Rechazar</button>' : ''}
+      </div>
+    `).join('');
+    aiRequestsList.querySelectorAll('.ai-request-paid, .ai-request-reject').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const record = button.closest('.ai-request-record');
+        const decision = button.classList.contains('ai-request-paid') ? 'paid' : 'rejected';
+        if (decision === 'paid' && !window.confirm('Confirma que recibiste S/ 10 del usuario. Se habilitarán 30 días desde hoy (o después de su periodo actual).')) return;
+        button.disabled = true;
+        try {
+          const result = await apiRequest('admin-ai-requests', {
+            method: 'PUT',
+            body: { id: record.dataset.requestId, decision }
+          });
+          showAppNotice(result.message);
+          await loadAdminData();
+        } catch (error) {
+          showAppNotice(error.message, true);
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  }
   if (!data.options.length) {
     optionsList.innerHTML = '<p class="empty-state">Crea una opción para empezar a asignar suscripciones.</p>';
   } else {
@@ -958,7 +1094,9 @@ async function handleReportClick() {
 
 async function exportReportPDF() {
   const jsPDF = await loadJsPDF();
-  const reportTransactions = getFilteredTransactions().sort((a, b) => a.date.localeCompare(b.date));
+  const reportTransactions = getFilteredTransactions()
+    .filter((transaction) => (transaction.baseCurrency || 'PEN') === appBaseCurrency)
+    .sort((a, b) => a.date.localeCompare(b.date));
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -967,7 +1105,7 @@ async function exportReportPDF() {
   const period = filterMonthInput.value === 'all' ? 'Todo el período' : formatMonthLabel(filterMonthInput.value);
   const totals = reportTransactions.reduce(
     (summary, transaction) => {
-      summary[transaction.type] += transaction.amount;
+      summary[transaction.type] += transaction.amountInBaseCurrency;
       return summary;
     },
     { income: 0, expense: 0 }
@@ -975,7 +1113,7 @@ async function exportReportPDF() {
   const categoryTotals = reportTransactions
     .filter((transaction) => transaction.type === 'expense')
     .reduce((result, transaction) => {
-      result[transaction.category] = (result[transaction.category] || 0) + transaction.amount;
+      result[transaction.category] = (result[transaction.category] || 0) + transaction.amountInBaseCurrency;
       return result;
     }, {});
 
@@ -1081,7 +1219,7 @@ async function exportReportPDF() {
     doc.text(descriptionLines, columns.description, y);
     doc.text(doc.splitTextToSize(transaction.category, 30), columns.category, y);
     doc.setTextColor(transaction.type === 'income' ? 22 : 220, transaction.type === 'income' ? 163 : 38, transaction.type === 'income' ? 74 : 38);
-    doc.text(`${transaction.type === 'income' ? '+' : '-'}${formatReportAmount(transaction.amount)}`, columns.amount - 2, y, { align: 'right' });
+    doc.text(`${transaction.type === 'income' ? '+' : '-'}${formatReportAmount(transaction.amount, transaction.currency)}`, columns.amount - 2, y, { align: 'right' });
     y += rowHeight;
   });
 
@@ -1139,8 +1277,13 @@ function loadJsPDF() {
   });
 }
 
-function formatReportAmount(value) {
-  return `$${Number(value).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN`;
+function formatReportAmount(value, currency = appBaseCurrency) {
+  return new Intl.NumberFormat('es-PE', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
 }
 
 function blobToBase64(blob) {
@@ -1200,13 +1343,16 @@ async function submitTransaction() {
   const category = categoryInput.value;
   const type = typeInput.value;
   const amount = Number(amountInput.value);
+  const currency = currencyInput.value;
+  const exchangeRate = currency === formBaseCurrency ? 1 : Number(exchangeRateInput.value);
   const date = dateInput.value;
 
-  if (!description || !date || Number.isNaN(amount) || amount <= 0) {
+  if (!description || !date || Number.isNaN(amount) || amount <= 0 ||
+      !['PEN', 'USD', 'EUR'].includes(currency) || !Number.isFinite(exchangeRate) || exchangeRate <= 0) {
     return;
   }
 
-  const payload = { description, category, type, amount, date };
+  const payload = { description, category, type, amount, currency, exchangeRate, date };
 
   submitButton.disabled = true;
   try {
@@ -1231,6 +1377,233 @@ async function submitTransaction() {
   } finally {
     submitButton.disabled = false;
   }
+}
+
+function openAiAssistant() {
+  aiAssistantStatus.textContent = 'La foto o transcripción se enviará a Gemini para analizarla; no se guardará como archivo.';
+  aiAssistantStatus.classList.remove('error');
+  aiAssistantTitle.textContent = aiAssistantAccess.isMaster
+    ? 'Registro inteligente'
+    : 'Registro inteligente Pro';
+  aiAssistantTools.hidden = !aiAssistantAccess.available;
+  aiPaidOffer.hidden = aiAssistantAccess.available;
+  startVoiceButton.textContent = window.SpeechRecognition || window.webkitSpeechRecognition
+    ? 'Grabar descripción'
+    : 'Interpretar texto';
+  if (!aiAssistantAccess.available) {
+    const isPending = aiAssistantAccess.requestStatus === 'pending';
+    aiRequestStatus.textContent = isPending
+      ? 'Ya recibimos tu solicitud. Te habilitaremos el servicio cuando el administrador confirme el pago.'
+      : aiAssistantAccess.requestStatus === 'rejected'
+        ? 'La solicitud anterior no fue aprobada. Si ya realizaste el pago, puedes enviar una nueva solicitud.'
+        : 'Luego de realizar el pago, solicita aquí la activación. El administrador verificará el pago antes de habilitarlo.';
+    requestAiAccessButton.hidden = isPending;
+  }
+  aiReceiptInput.value = '';
+  aiTranscriptInput.value = '';
+  aiReceiptPreview.hidden = true;
+  if (aiReceiptPreviewUrl) {
+    URL.revokeObjectURL(aiReceiptPreviewUrl);
+    aiReceiptPreviewUrl = '';
+  }
+  aiAssistantDialog.showModal();
+}
+
+async function requestAiSubscription() {
+  requestAiAccessButton.disabled = true;
+  try {
+    const result = await apiRequest('ai-subscription-request', { method: 'POST', body: {} });
+    showAppNotice(result.message);
+    aiAssistantAccess.requestStatus = 'pending';
+    aiRequestStatus.textContent = 'Solicitud enviada. Te habilitaremos el servicio cuando el administrador confirme el pago.';
+    requestAiAccessButton.hidden = true;
+  } catch (error) {
+    setAiAssistantStatus(error.message, true);
+  } finally {
+    requestAiAccessButton.disabled = false;
+  }
+}
+
+function handleAiReceiptSelection() {
+  const file = aiReceiptInput.files[0];
+  if (!file) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    aiReceiptInput.value = '';
+    setAiAssistantStatus('Selecciona una imagen JPG, PNG o WebP.', true);
+    return;
+  }
+  if (aiReceiptPreviewUrl) URL.revokeObjectURL(aiReceiptPreviewUrl);
+  aiReceiptPreviewUrl = URL.createObjectURL(file);
+  aiReceiptPreview.src = aiReceiptPreviewUrl;
+  aiReceiptPreview.hidden = false;
+  setAiAssistantStatus('Comprueba que el total y los conceptos sean legibles.');
+}
+
+async function handleReceiptAnalysis() {
+  const file = aiReceiptInput.files[0];
+  if (!file) {
+    setAiAssistantStatus('Selecciona o toma una foto del comprobante primero.', true);
+    return;
+  }
+  const button = analyzeReceiptButton;
+  button.disabled = true;
+  setAiAssistantStatus('Analizando el comprobante…');
+  try {
+    const image = await compressReceiptImage(file);
+    const body = new FormData();
+    body.append('source', 'receipt');
+    body.append('image', image, 'comprobante.jpg');
+    const result = await apiRequest('ai-transaction', { method: 'POST', body });
+    applyAiTransaction(result);
+  } catch (error) {
+    setAiAssistantStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleVoiceInterpretation() {
+  const transcript = aiTranscriptInput.value.trim();
+  if (!transcript) {
+    setAiAssistantStatus('No se reconoció ninguna frase. Inténtalo otra vez o escribe la descripción.', true);
+    return;
+  }
+  startVoiceButton.disabled = true;
+  startVoiceButton.textContent = 'Interpretando…';
+  setAiAssistantStatus('Interpretando el movimiento…');
+  try {
+    const result = await apiRequest('ai-transaction', {
+      method: 'POST',
+      body: { source: 'voice', transcript }
+    });
+    applyAiTransaction(result);
+  } catch (error) {
+    setAiAssistantStatus(error.message, true);
+  } finally {
+    startVoiceButton.disabled = false;
+    startVoiceButton.textContent = window.SpeechRecognition || window.webkitSpeechRecognition
+      ? 'Grabar descripción'
+      : 'Interpretar texto';
+  }
+}
+
+function startAiDictation() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    if (aiTranscriptInput.value.trim()) {
+      handleVoiceInterpretation();
+    } else {
+      setAiAssistantStatus('Este navegador no admite dictado. Escribe la descripción para interpretarla.', true);
+    }
+    return;
+  }
+  if (aiRecognition) {
+    startVoiceButton.textContent = 'Procesando…';
+    aiRecognition.stop();
+    return;
+  }
+  if (aiTranscriptInput.value.trim()) {
+    handleVoiceInterpretation();
+    return;
+  }
+  const recognition = new SpeechRecognition();
+  aiRecognition = recognition;
+  aiVoiceRecognitionFailed = false;
+  aiVoiceCancelled = false;
+  aiTranscriptInput.value = '';
+  recognition.lang = 'es-PE';
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+  startVoiceButton.textContent = 'Terminar y analizar';
+  setAiAssistantStatus('Escuchando… Al terminar, interpretaré automáticamente lo reconocido.');
+  recognition.onresult = (event) => {
+    aiTranscriptInput.value = Array.from(event.results)
+      .map((result) => result[0].transcript)
+      .join(' ')
+      .trim();
+  };
+  recognition.onerror = (event) => {
+    aiVoiceRecognitionFailed = true;
+    setAiAssistantStatus(event.error === 'not-allowed'
+      ? 'Permite el acceso al micrófono en tu navegador e inténtalo de nuevo.'
+      : 'No se pudo reconocer la voz. Puedes escribir la descripción.', true);
+  };
+  recognition.onend = () => {
+    aiRecognition = null;
+    if (aiVoiceCancelled || !aiAssistantDialog.open) return;
+    if (aiVoiceRecognitionFailed) {
+      startVoiceButton.textContent = 'Interpretar texto';
+      return;
+    }
+    if (aiTranscriptInput.value.trim()) {
+      handleVoiceInterpretation();
+    } else {
+      startVoiceButton.textContent = 'Grabar descripción';
+      setAiAssistantStatus('No se reconoció ninguna frase. Inténtalo otra vez o escribe la descripción.', true);
+    }
+  };
+  recognition.start();
+}
+
+async function compressReceiptImage(file) {
+  if (file.size > 15728640) {
+    throw new Error('La foto original supera 15 MB. Toma una foto más pequeña e inténtalo de nuevo.');
+  }
+  const imageUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('No se pudo abrir la imagen. Usa JPG, PNG o WebP.'));
+      element.src = imageUrl;
+    });
+    let scale = Math.min(1, 2560 / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('No se pudo preparar la imagen en este dispositivo.');
+    let blob = null;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const quality = attempt < 3 ? [0.9, 0.84, 0.78][attempt] : 0.74;
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (blob && blob.size <= 2097152) break;
+      scale *= 0.82;
+    }
+    if (!blob || blob.size > 2097152) {
+      throw new Error('No se pudo preparar la foto para su análisis. Toma otra con menor resolución.');
+    }
+    return blob;
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+}
+
+function applyAiTransaction(result) {
+  const transaction = result.transaction;
+  resetFormState();
+  descriptionInput.value = transaction.description;
+  typeInput.value = transaction.type;
+  amountInput.value = String(transaction.amount);
+  formBaseCurrency = appBaseCurrency;
+  currencyInput.value = transaction.currency || appBaseCurrency;
+  exchangeRateInput.value = currencyInput.value === formBaseCurrency
+    ? '1'
+    : '';
+  updateExchangeRateField();
+  dateInput.value = transaction.date;
+  const categoryExists = Array.from(categoryInput.options).some((option) => option.value === transaction.category);
+  categoryInput.value = categoryExists ? transaction.category : 'Otros';
+  aiAssistantDialog.close();
+  showAppNotice(result.categoryWarning
+    ? 'Movimiento completado. Revisa la categoría sugerida antes de guardarlo.'
+    : 'Movimiento completado con IA. Revísalo y pulsa Guardar movimiento.');
+}
+
+function setAiAssistantStatus(message, error = false) {
+  aiAssistantStatus.textContent = message;
+  aiAssistantStatus.classList.toggle('error', error);
 }
 
 function handleGoalSubmit(event) {
@@ -1279,6 +1652,19 @@ function render() {
   renderGoals();
   renderMonthOptions();
   renderTable();
+  updateCurrencyHistoryNotice();
+}
+
+function updateCurrencyHistoryNotice() {
+  const historicalCurrencies = [...new Set([
+    ...transactions.map((transaction) => transaction.baseCurrency || 'PEN'),
+    ...goals.map((goal) => goal.currency || 'PEN')
+  ]
+    .filter((currency) => currency !== appBaseCurrency))];
+  currencyHistoryNotice.hidden = historicalCurrencies.length === 0;
+  currencyHistoryNotice.textContent = historicalCurrencies.length
+    ? `La moneda principal es ${appBaseCurrency}. Los registros históricos en ${historicalCurrencies.join(', ')} conservan su valor y no se mezclan en los resúmenes actuales.`
+    : '';
 }
 
 function summarizeTransactions() {
@@ -1298,9 +1684,9 @@ function summarizeTransactions() {
     }
 
     if (transaction.type === 'income') {
-      income += transaction.amount;
+      if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) income += transaction.amountInBaseCurrency;
     } else {
-      expense += transaction.amount;
+      if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) expense += transaction.amountInBaseCurrency;
     }
   }
 
@@ -1312,14 +1698,16 @@ function summarizeTransactions() {
       const date = new Date(t.date + 'T00:00:00');
       return date.getFullYear() === previousMonth.getFullYear() && date.getMonth() === previousMonth.getMonth();
     })
-    .reduce((sum, t) => sum + (t.type === 'income' ? t.amount : 0), 0);
+    .filter((t) => (t.baseCurrency || 'PEN') === appBaseCurrency)
+    .reduce((sum, t) => sum + (t.type === 'income' ? t.amountInBaseCurrency : 0), 0);
 
   const previousExpense = transactions
     .filter((t) => {
       const date = new Date(t.date + 'T00:00:00');
       return date.getFullYear() === previousMonth.getFullYear() && date.getMonth() === previousMonth.getMonth();
     })
-    .reduce((sum, t) => sum + (t.type === 'expense' ? t.amount : 0), 0);
+    .filter((t) => (t.baseCurrency || 'PEN') === appBaseCurrency)
+    .reduce((sum, t) => sum + (t.type === 'expense' ? t.amountInBaseCurrency : 0), 0);
 
   const prevBalance = previousIncome - previousExpense;
   const delta = balance - prevBalance;
@@ -1346,7 +1734,9 @@ function buildBudgetData() {
     }
 
     const category = transaction.category || 'Otros';
-    categories[category] = (categories[category] || 0) + transaction.amount;
+    if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) {
+      categories[category] = (categories[category] || 0) + transaction.amountInBaseCurrency;
+    }
   }
 
   const entries = Object.entries(categories)
@@ -1490,7 +1880,8 @@ function renderTable() {
           <td data-label="Categoría">${escapeHtml(row.category)}</td>
           <td data-label="Fecha">${formatDate(row.date)}</td>
           <td data-label="Monto" class="${row.type === 'income' ? 'amount-income' : 'amount-expense'}">
-            ${row.type === 'income' ? '+' : '-'}${formatCurrency(row.amount)}
+            ${row.type === 'income' ? '+' : '-'}${formatCurrency(row.amount, row.currency)}
+            ${row.currency !== (row.baseCurrency || 'PEN') ? `<small>≈ ${formatCurrency(row.amountInBaseCurrency, row.baseCurrency || 'PEN')}</small>` : ''}
           </td>
           <td data-label="Acciones">
             <div class="goal-actions">
@@ -1538,7 +1929,11 @@ function renderTable() {
       descriptionInput.value = item.description;
       categoryInput.value = item.category;
       typeInput.value = item.type;
+      formBaseCurrency = item.baseCurrency || 'PEN';
       amountInput.value = String(item.amount);
+      currencyInput.value = item.currency || formBaseCurrency;
+      exchangeRateInput.value = String(item.exchangeRate || 1);
+      updateExchangeRateField();
       dateInput.value = item.date;
       descriptionInput.focus();
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1570,9 +1965,9 @@ function renderMonthlyChart() {
     }
 
     if (transaction.type === 'income') {
-      entry.income += transaction.amount;
+      if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) entry.income += transaction.amountInBaseCurrency;
     } else {
-      entry.expense += transaction.amount;
+      if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) entry.expense += transaction.amountInBaseCurrency;
     }
   });
 
@@ -1604,7 +1999,9 @@ function renderCategoryChart() {
     }
 
     const category = transaction.category || 'Otros';
-    totals[category] = (totals[category] || 0) + transaction.amount;
+    if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) {
+      totals[category] = (totals[category] || 0) + transaction.amountInBaseCurrency;
+    }
   });
 
   const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 4);
@@ -1623,7 +2020,7 @@ function renderCategoryChart() {
 
   categoryChart.innerHTML = `
     <div class="donut-wrap" style="background: conic-gradient(${gradientParts});">
-      <div class="donut-center">${entries.length ? formatCurrency(totalValue) : '$0'}</div>
+      <div class="donut-center">${entries.length ? formatCurrency(totalValue) : formatCurrency(0)}</div>
     </div>
     <div class="category-legend">
       ${
@@ -1661,7 +2058,7 @@ function renderGoals() {
         <article class="goal-item">
           <header>
             <strong>${escapeHtml(goal.name)}</strong>
-            <span>${formatCurrency(goal.current)} / ${formatCurrency(goal.target)}</span>
+            <span>${formatCurrency(goal.current, goal.currency || 'PEN')} / ${formatCurrency(goal.target, goal.currency || 'PEN')}</span>
           </header>
           <div class="goal-progress">
             <div class="progress-track">
@@ -1670,7 +2067,7 @@ function renderGoals() {
           </div>
           <footer>
             <span>${Math.round(percent)}% completado</span>
-            <span>${formatCurrency(remaining)} restantes</span>
+            <span>${formatCurrency(remaining, goal.currency || 'PEN')} restantes</span>
           </footer>
           <div class="goal-actions" style="margin-top: 12px;">
             <button class="goal-delete-button" type="button" data-goal-id="${goal.id}">Eliminar</button>
@@ -1716,12 +2113,43 @@ function resetFormState() {
   cancelEditButton.hidden = true;
   dateInput.value = getDateString(0);
   typeInput.value = 'expense';
+  formBaseCurrency = appBaseCurrency;
+  currencyInput.value = appBaseCurrency;
+  updateExchangeRateField();
 }
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat('es-MX', {
+function updateExchangeRateField() {
+  const needsExchangeRate = currencyInput.value !== formBaseCurrency;
+  exchangeRateField.hidden = !needsExchangeRate;
+  exchangeRateInput.required = needsExchangeRate;
+  exchangeRateHint.textContent = `${formBaseCurrency} por cada unidad de ${currencyInput.value}`;
+  if (!needsExchangeRate) {
+    exchangeRateInput.value = '1';
+  }
+}
+
+function applyBaseCurrency(currency) {
+  if (!['PEN', 'USD', 'EUR'].includes(currency)) return;
+  const previousBaseCurrency = appBaseCurrency;
+  appBaseCurrency = currency;
+  document.getElementById('baseCurrencyInput').value = appBaseCurrency;
+  document.querySelectorAll('.base-currency-label').forEach((label) => {
+    label.textContent = appBaseCurrency;
+  });
+  if (!editingTransactionId) {
+    formBaseCurrency = appBaseCurrency;
+    if (currencyInput.value === previousBaseCurrency) {
+      currencyInput.value = appBaseCurrency;
+    }
+    updateExchangeRateField();
+  }
+  render();
+}
+
+function formatCurrency(value, currency = appBaseCurrency) {
+  return new Intl.NumberFormat('es-PE', {
     style: 'currency',
-    currency: 'MXN'
+    currency
   }).format(value);
 }
 

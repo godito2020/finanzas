@@ -11,4 +11,6 @@ return [
     'FINANZA_SMTP_PASSWORD' => 'replace-with-a-secret',
     'FINANZA_MAIL_FROM' => 'noreply@your-domain.example',
     'FINANZA_MAIL_FROM_NAME' => 'Finanza',
+    'FINANZA_GEMINI_API_KEY' => '',
+    'FINANZA_GROQ_API_KEY' => '',
 ];

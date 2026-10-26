@@ -131,6 +131,7 @@
           </div>
         </header>
         <p class="app-notice" id="appNotice" role="status" aria-live="polite" hidden></p>
+        <p class="app-notice currency-history-notice" id="currencyHistoryNotice" role="status" hidden></p>
 
         <section class="cards" aria-label="Resumen del mes">
           <article class="card balance-card">
@@ -207,7 +208,7 @@
               </div>
               <div class="field-row two-cols">
                 <div>
-                  <label for="amountInput">Monto <span class="field-hint">MXN</span></label>
+                  <label for="amountInput">Monto</label>
                   <input id="amountInput" name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0.00" required />
                 </div>
                 <div>
@@ -215,6 +216,22 @@
                   <input id="dateInput" name="date" type="date" required />
                 </div>
               </div>
+              <div class="field-row two-cols">
+                <div>
+                  <label for="currencyInput">Moneda</label>
+                  <select id="currencyInput" name="currency">
+                    <option value="PEN">Soles (PEN)</option>
+                    <option value="USD">Dólares (USD)</option>
+                    <option value="EUR">Euros (EUR)</option>
+                  </select>
+                </div>
+                <div id="exchangeRateField" hidden>
+                  <label for="exchangeRateInput">Tipo de cambio a moneda principal</label>
+                  <input id="exchangeRateInput" name="exchangeRate" type="number" min="0.000001" max="100000" step="0.000001" inputmode="decimal" placeholder="Ej. 3.75" />
+                  <span class="field-hint" id="exchangeRateHint">PEN por cada unidad extranjera</span>
+                </div>
+              </div>
+              <button class="button button-quiet wide" type="button" id="openAiAssistantButton" hidden>Registro inteligente con IA (Pro)</button>
               <div class="button-row">
                 <button class="button button-primary wide" type="submit" id="submitButton">Guardar movimiento</button>
                 <button class="button button-quiet" type="button" id="cancelEditButton" hidden>Cancelar edición</button>
@@ -253,8 +270,8 @@
                 <input id="goalNameInput" name="goalName" type="text" maxlength="60" placeholder="Ej. Fondo de emergencia" required />
               </div>
               <div class="field-row two-cols">
-                <div><label for="goalTargetInput">Objetivo (MXN)</label><input id="goalTargetInput" name="goalTarget" type="number" min="1" step="0.01" inputmode="decimal" placeholder="0.00" required /></div>
-                <div><label for="goalCurrentInput">Ahorrado (MXN)</label><input id="goalCurrentInput" name="goalCurrent" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required /></div>
+                <div><label for="goalTargetInput">Objetivo (<span class="base-currency-label">PEN</span>)</label><input id="goalTargetInput" name="goalTarget" type="number" min="1" step="0.01" inputmode="decimal" placeholder="0.00" required /></div>
+                <div><label for="goalCurrentInput">Ahorrado (<span class="base-currency-label">PEN</span>)</label><input id="goalCurrentInput" name="goalCurrent" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required /></div>
               </div>
               <div class="field-row"><label for="goalDateInput">Fecha objetivo</label><input id="goalDateInput" name="goalDate" type="date" required /></div>
               <button class="button button-primary wide" type="submit">Guardar meta</button>
@@ -310,10 +327,34 @@
           <section class="panel admin-section">
             <div class="panel-header"><div><p class="eyebrow">IDENTIDAD Y CORREO</p><h2>Configuración</h2></div></div>
             <form id="adminSettingsForm" class="admin-settings-form">
+              <h3>Moneda principal</h3>
+              <p class="section-description">Se aplicará como moneda predeterminada y de resumen en las cuentas de todos los usuarios. Los movimientos y metas anteriores conservarán su moneda original.</p>
+              <div class="field-row">
+                <label for="baseCurrencyInput">Moneda principal de la aplicación</label>
+                <select id="baseCurrencyInput">
+                  <option value="PEN">Soles (PEN)</option>
+                  <option value="USD">Dólares (USD)</option>
+                  <option value="EUR">Euros (EUR)</option>
+                </select>
+              </div>
               <div class="field-row two-cols">
                 <div><label for="appNameInput">Nombre de la aplicación</label><input id="appNameInput" maxlength="60" required /></div>
                 <div><label for="contactEmailInput">Correo de contacto</label><input id="contactEmailInput" type="email" maxlength="254" /></div>
               </div>
+              <h3>Asistente de inteligencia artificial</h3>
+              <p class="section-description">Configura las claves de Gemini y/o Groq; se cifran en el servidor y nunca se muestran después de guardarlas. Selecciona cuál servicio procesará fotos y descripciones.</p>
+              <div class="field-row two-cols">
+                <div>
+                  <label for="aiProviderInput">Proveedor activo</label>
+                  <select id="aiProviderInput"><option value="gemini">Google Gemini</option><option value="groq">Groq (Qwen Vision)</option></select>
+                </div>
+                <div><label for="geminiApiKeyInput">Clave API de Gemini</label><input id="geminiApiKeyInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" /></div>
+              </div>
+              <div class="field-row">
+                <label for="groqApiKeyInput">Clave API de Groq</label>
+                <input id="groqApiKeyInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" />
+              </div>
+              <p class="section-description" id="aiProviderStatus" aria-live="polite"></p>
               <h3>Servidor de correo SMTP</h3>
               <p class="section-description">La contraseña se cifra en el servidor y nunca se muestra aquí. Déjala vacía para conservarla.</p>
               <div class="field-row two-cols">
@@ -346,6 +387,9 @@
           </section>
           <section class="panel admin-section">
             <div class="panel-header"><div><p class="eyebrow">GESTIÓN FLEXIBLE</p><h2>Opciones y suscripciones</h2></div></div>
+            <h3>Solicitudes de IA Pro (S/ 10 mensuales)</h3>
+            <p class="section-description">Verifica el pago fuera de la aplicación y confirma la activación para habilitar 30 días. La renovación mensual es manual.</p>
+            <div id="aiSubscriptionRequestsList" class="admin-record-list" aria-live="polite"></div>
             <form id="subscriptionOptionForm" class="admin-settings-form">
               <div class="field-row two-cols">
                 <div><label for="optionNameInput">Nombre de la opción</label><input id="optionNameInput" maxlength="60" required /></div>
@@ -384,6 +428,32 @@
           <button class="button button-primary" type="submit">Enviar sugerencia</button>
         </div>
       </form>
+    </dialog>
+    <dialog class="suggestion-dialog ai-assistant-dialog" id="aiAssistantDialog" aria-labelledby="aiAssistantTitle">
+      <div class="suggestion-dialog-header">
+        <div><p class="eyebrow">ASISTENTE INTELIGENTE</p><h2 id="aiAssistantTitle">Registro inteligente</h2></div>
+        <button class="button button-reset suggestion-close" id="closeAiAssistantButton" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <p class="section-description">Sube la foto de un comprobante o dicta un movimiento. Gemini analizará los datos y completará el formulario; revisa el resultado antes de guardarlo. La foto y el texto reconocido se envían a Google Gemini y no se guardan en Finanza. El dictado depende del servicio de voz de tu navegador.</p>
+      <section class="ai-paid-offer" id="aiPaidOffer" hidden>
+        <h3>Finanza Pro: S/ 10 al mes</h3>
+        <p>Suscripción mensual recurrente. Paga por el medio indicado por el administrador y solicita la activación. El acceso se habilita tras verificar el pago y dura 30 días; la renovación es manual y no se realizan cobros automáticos.</p>
+        <button class="button button-primary wide" id="requestAiAccessButton" type="button">Ya pagué · Solicitar activación</button>
+        <p class="auth-message" id="aiRequestStatus" role="status" aria-live="polite"></p>
+      </section>
+      <div class="ai-assistant-tools" id="aiAssistantTools">
+        <label for="aiReceiptInput">Foto del comprobante</label>
+        <input id="aiReceiptInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" />
+        <img class="ai-receipt-preview" id="aiReceiptPreview" alt="Vista previa del comprobante" hidden />
+        <button class="button button-primary" id="analyzeReceiptButton" type="button">Leer total y detalle</button>
+        <label for="aiTranscriptInput">Descripción hablada o escrita</label>
+        <textarea id="aiTranscriptInput" maxlength="500" rows="3" placeholder="Ej.: Recibí 120 soles por una reparación hoy"></textarea>
+        <button class="button button-primary wide" id="startVoiceButton" type="button">Grabar descripción</button>
+      </div>
+      <p class="auth-message ai-assistant-status" id="aiAssistantStatus" role="status" aria-live="polite"></p>
+      <div class="suggestion-dialog-actions">
+        <button class="button button-quiet wide" id="cancelAiAssistantButton" type="button">Cerrar</button>
+      </div>
     </dialog>
     <nav class="mobile-nav" aria-label="Navegación móvil" hidden>
       <a href="#overview"><span aria-hidden="true">⌂</span>Resumen</a>
