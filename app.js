@@ -171,42 +171,6 @@ function initialize() {
     }
   }
 
-  function applyBranding(settings) {
-    const name = settings.appName || 'Finanza';
-    document.title = `${name} — tus números en orden`;
-    document.querySelector('meta[name="apple-mobile-web-app-title"]').content = name;
-    document.querySelectorAll('.brand-name').forEach((element) => { element.textContent = name; });
-    const contact = document.getElementById('publicContactEmail');
-    contact.hidden = !settings.contactEmail;
-    contact.replaceChildren(document.createTextNode(' · Contacto: '));
-    if (settings.contactEmail) {
-      const link = document.createElement('a');
-      link.href = `mailto:${settings.contactEmail}`;
-      link.textContent = settings.contactEmail;
-      contact.append(link);
-    }
-    for (const [id, url] of [['authLogo', settings.logoUrl], ['appLogo', settings.logoUrl]]) {
-      const image = document.getElementById(id);
-      image.hidden = !url;
-      image.src = url ? resolveBrandAsset(url) : '';
-      image.previousElementSibling.hidden = Boolean(url);
-    }
-    if (settings.faviconUrl) {
-      let favicon = document.querySelector('link[rel="icon"]');
-      if (!favicon) {
-        favicon = document.createElement('link');
-        favicon.rel = 'icon';
-        document.head.append(favicon);
-      }
-      favicon.href = resolveBrandAsset(settings.faviconUrl);
-    }
-  }
-
-  function resolveBrandAsset(path) {
-    const apiDirectory = new URL('../', new URL(apiBaseUrl, document.baseURI));
-    return new URL(path, apiDirectory).href;
-  }
-
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     if (isAppInstalled()) {
@@ -233,6 +197,42 @@ function initialize() {
   } else if (!apiBaseUrl) {
     showAuthMessage('La conexión con el servidor todavía no está configurada.', true);
   }
+}
+
+function applyBranding(settings) {
+  const name = settings.appName || 'Finanza';
+  document.title = `${name} — tus números en orden`;
+  document.querySelector('meta[name="apple-mobile-web-app-title"]').content = name;
+  document.querySelectorAll('.brand-name').forEach((element) => { element.textContent = name; });
+  const contact = document.getElementById('publicContactEmail');
+  contact.hidden = !settings.contactEmail;
+  contact.replaceChildren(document.createTextNode(' · Contacto: '));
+  if (settings.contactEmail) {
+    const link = document.createElement('a');
+    link.href = `mailto:${settings.contactEmail}`;
+    link.textContent = settings.contactEmail;
+    contact.append(link);
+  }
+  for (const [id, url] of [['authLogo', settings.logoUrl], ['appLogo', settings.logoUrl]]) {
+    const image = document.getElementById(id);
+    image.hidden = !url;
+    image.src = url ? resolveBrandAsset(url) : '';
+    image.previousElementSibling.hidden = Boolean(url);
+  }
+  if (settings.faviconUrl) {
+    let favicon = document.querySelector('link[rel="icon"]');
+    if (!favicon) {
+      favicon = document.createElement('link');
+      favicon.rel = 'icon';
+      document.head.append(favicon);
+    }
+    favicon.href = resolveBrandAsset(settings.faviconUrl);
+  }
+}
+
+function resolveBrandAsset(path) {
+  const apiDirectory = new URL('../', new URL(apiBaseUrl, document.baseURI));
+  return new URL(path, apiDirectory).href;
 }
 
 function getApiBaseUrl() {
