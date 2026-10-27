@@ -135,6 +135,7 @@
             <button class="button button-report" type="button" id="reportButton">
               <span aria-hidden="true">↓</span> Descargar reporte PDF
             </button>
+            <button class="button button-reset" type="button" id="restartOnboardingButton">Ver guía</button>
             <a class="button button-reset" href="./manual/index.html" target="_blank" rel="noopener noreferrer">Manual de usuario</a>
             <button class="button button-reset" type="button" id="openSuggestionButton">Enviar sugerencia</button>
             <button class="button button-install install-button" type="button" id="installButton" hidden>Instalar app</button>
@@ -441,6 +442,7 @@
         </div>
       </form>
     </dialog>
+    <div class="onboarding-spotlight" id="onboardingSpotlight" aria-hidden="true" hidden></div>
     <dialog class="suggestion-dialog onboarding-dialog" id="onboardingDialog" aria-labelledby="onboardingTitle">
       <div class="suggestion-dialog-header">
         <div><p class="eyebrow" id="onboardingStepLabel">GUÍA INICIAL</p><h2 id="onboardingTitle">Conoce Finanza</h2></div>

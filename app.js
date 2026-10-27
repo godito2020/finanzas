@@ -24,6 +24,7 @@ const installButton = document.getElementById('installButton');
 const authInstallButton = document.getElementById('authInstallButton');
 const authInstallHelp = document.getElementById('authInstallHelp');
 const reportButton = document.getElementById('reportButton');
+const restartOnboardingButton = document.getElementById('restartOnboardingButton');
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
 const authMessage = document.getElementById('authMessage');
@@ -119,7 +120,9 @@ const subscriptionOptionForm = document.getElementById('subscriptionOptionForm')
 const subscriptionAssignmentForm = document.getElementById('subscriptionAssignmentForm');
 const mobileNav = document.querySelector('.mobile-nav');
 const onboardingDialog = document.getElementById('onboardingDialog');
+const onboardingSpotlight = document.getElementById('onboardingSpotlight');
 const onboardingStepLabel = document.getElementById('onboardingStepLabel');
+const onboardingTitle = document.getElementById('onboardingTitle');
 const onboardingDescription = document.getElementById('onboardingDescription');
 const onboardingStatus = document.getElementById('onboardingStatus');
 const previousOnboardingButton = document.getElementById('previousOnboardingButton');
@@ -147,12 +150,41 @@ let aiAssistantAccess = { available: false, isMaster: false, requestStatus: null
 let publicBrand = { appName: 'Finanza', logoUrl: '', faviconUrl: '' };
 let onboardingStep = 0;
 const onboardingSteps = [
-  'En el resumen verás tus ingresos, gastos, balance del mes y gráficos para entender cómo se mueve tu dinero.',
-  'En “Nuevo movimiento” registra ingresos o gastos. Elige categoría, monto, moneda y fecha; revisa los datos antes de guardar.',
-  'En “Movimientos” consulta tu historial, filtra por tipo, categoría o mes, y busca conceptos específicos.',
-  'En “Metas” define objetivos de ahorro, su monto y fecha. Finanza te ayuda a seguir el avance.',
-  'El registro inteligente puede completar un movimiento desde una foto o descripción. Revisa siempre los datos antes de guardar; la función Pro requiere activación.',
-  'También puedes descargar reportes y consultar el manual desde la parte superior. ¡Ya puedes empezar!'
+  {
+    title: 'Tu dinero, resumido',
+    description: 'Estas tarjetas comparan tus ingresos y gastos del mes. El balance es la diferencia entre ambos y el ahorro sugerido te da una referencia para planificar.',
+    target: '.cards'
+  },
+  {
+    title: 'Entiende tus tendencias',
+    description: 'Los gráficos muestran cómo cambian tus ingresos y gastos por mes y en qué categorías gastas más. Se actualizan cuando registras movimientos.',
+    target: '.analytics-grid'
+  },
+  {
+    title: 'Registra cada movimiento',
+    description: 'Anota aquí un ingreso o un gasto. Añade descripción, categoría, monto y fecha; si usas otra moneda, selecciónala para convertirla en el resumen. Si tienes habilitado el registro inteligente, puedes empezar con una foto o descripción y revisar los datos antes de guardar.',
+    target: '#transactionForm'
+  },
+  {
+    title: 'Organiza a tu manera',
+    description: 'Crea categorías propias, como Mascotas o Suscripciones. Luego podrás elegirlas al registrar movimientos y reconocer mejor en qué se va tu dinero.',
+    target: '#categoryForm'
+  },
+  {
+    title: 'Ahorra con una meta',
+    description: 'Define cuánto quieres ahorrar, cuánto llevas y para cuándo. Después encontrarás el avance de tus objetivos en la sección “Tus metas”.',
+    target: '#goalForm'
+  },
+  {
+    title: 'Encuentra cualquier movimiento',
+    description: 'En tu historial puedes buscar por descripción y filtrar por tipo, categoría o mes. Desde cada registro también puedes editarlo o eliminarlo.',
+    target: '#transactions'
+  },
+  {
+    title: 'Herramientas para continuar',
+    description: 'Descarga un reporte PDF para guardar tus movimientos, consulta el manual cuando necesites más detalle y envía sugerencias. Puedes volver a recorrer esta guía con el botón “Ver guía”.',
+    target: '.topbar-actions'
+  }
 ];
 
 initialize();
@@ -195,6 +227,7 @@ function initialize() {
   installButton.addEventListener('click', handleInstallClick);
   authInstallButton.addEventListener('click', handleInstallClick);
   reportButton.addEventListener('click', handleReportClick);
+  restartOnboardingButton.addEventListener('click', () => maybeStartOnboarding(true));
   categoryForm.addEventListener('submit', handleCategorySubmit);
   loginForm.addEventListener('submit', handleLoginSubmit);
   registerForm.addEventListener('submit', handleRegisterSubmit);
@@ -242,6 +275,13 @@ function initialize() {
   });
   skipOnboardingButton.addEventListener('click', finishOnboarding);
   onboardingDialog.addEventListener('cancel', (event) => event.preventDefault());
+  onboardingDialog.addEventListener('close', () => {
+    onboardingSpotlight.hidden = true;
+    onboardingDialog.style.removeProperty('left');
+    onboardingDialog.style.removeProperty('top');
+  });
+  window.addEventListener('resize', updateOnboardingSpotlight);
+  window.addEventListener('scroll', updateOnboardingSpotlight, true);
   adminPanelButton.addEventListener('click', openAdminPanel);
   closeAdminButton.addEventListener('click', closeAdminPanel);
   document.querySelectorAll('.upload-button').forEach((button) => {
@@ -1540,20 +1580,62 @@ function openAiAssistant() {
   aiAssistantDialog.showModal();
 }
 
-function maybeStartOnboarding() {
-  if (!currentUser || currentUser.onboardingCompleted !== false || onboardingDialog.open) return;
+function maybeStartOnboarding(force = false) {
+  if (!currentUser || (!force && currentUser.onboardingCompleted !== false) || onboardingDialog.open) return;
   onboardingStep = 0;
   onboardingStatus.hidden = true;
   onboardingStatus.classList.remove('error');
   renderOnboardingStep();
   onboardingDialog.showModal();
+  onboardingSpotlight.hidden = false;
+  updateOnboardingSpotlight();
+  window.setTimeout(() => updateOnboardingSpotlight(), 350);
 }
 
 function renderOnboardingStep() {
   onboardingStepLabel.textContent = `GUÍA INICIAL · ${onboardingStep + 1} DE ${onboardingSteps.length}`;
-  onboardingDescription.textContent = onboardingSteps[onboardingStep];
+  const step = onboardingSteps[onboardingStep];
+  onboardingTitle.textContent = step.title;
+  onboardingDescription.textContent = step.description;
   previousOnboardingButton.disabled = onboardingStep === 0;
   nextOnboardingButton.textContent = onboardingStep === onboardingSteps.length - 1 ? 'Terminar' : 'Siguiente';
+  const target = document.querySelector(step.target);
+  if (!target) {
+    onboardingSpotlight.hidden = true;
+    return;
+  }
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (onboardingDialog.open) {
+    onboardingSpotlight.hidden = false;
+    window.setTimeout(() => updateOnboardingSpotlight(), 350);
+  }
+}
+
+function updateOnboardingSpotlight() {
+  if (!onboardingDialog.open || onboardingSpotlight.hidden) return;
+  const target = document.querySelector(onboardingSteps[onboardingStep].target);
+  if (!target) return;
+
+  const rect = target.getBoundingClientRect();
+  const padding = 7;
+  const left = Math.max(8, rect.left - padding);
+  const top = Math.max(8, rect.top - padding);
+  onboardingSpotlight.style.left = `${left}px`;
+  onboardingSpotlight.style.top = `${top}px`;
+  onboardingSpotlight.style.width = `${Math.min(rect.right + padding - left, window.innerWidth - left - 8)}px`;
+  onboardingSpotlight.style.height = `${Math.min(rect.bottom + padding - top, window.innerHeight - top - 8)}px`;
+
+  const dialogRect = onboardingDialog.getBoundingClientRect();
+  const dialogLeft = Math.min(
+    Math.max(12, rect.left + rect.width / 2 - dialogRect.width / 2),
+    window.innerWidth - dialogRect.width - 12
+  );
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const dialogTop = spaceBelow >= dialogRect.height + 24
+    ? rect.bottom + 12
+    : Math.max(12, rect.top - dialogRect.height - 12);
+  onboardingDialog.style.left = `${dialogLeft}px`;
+  onboardingDialog.style.top = `${Math.min(dialogTop, window.innerHeight - dialogRect.height - 12)}px`;
 }
 
 async function finishOnboarding() {

@@ -398,8 +398,24 @@ td .goal-actions { flex-wrap: nowrap; }
 .suggestion-close { min-width: 38px; min-height: 38px; padding: 0; font-size: 1.35rem; }
 .suggestion-dialog .section-description { margin: 0 0 16px; }
 .suggestion-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 5px; }
-.onboarding-dialog { max-width: 580px; }
-.onboarding-dialog .section-description { min-height: 72px; line-height: 1.65; }
+.onboarding-dialog {
+  position: fixed;
+  width: min(440px, calc(100vw - 24px));
+  max-width: 440px;
+  margin: 0;
+}
+.onboarding-dialog::backdrop { background: transparent; backdrop-filter: none; }
+.onboarding-dialog .section-description { margin-bottom: 20px; line-height: 1.65; }
+.onboarding-dialog .suggestion-dialog-actions { align-items: center; }
+.onboarding-spotlight {
+  position: fixed;
+  z-index: 20;
+  border: 3px solid #b4e3a2;
+  border-radius: 15px;
+  box-shadow: 0 0 0 7px rgba(180, 227, 162, .42), 0 0 0 9999px rgba(17, 31, 23, .72);
+  pointer-events: none;
+  transition: left .22s ease, top .22s ease, width .22s ease, height .22s ease;
+}
 .onboarding-status { margin-top: 12px; }
 .admin-panel { display: grid; gap: 15px; margin-bottom: 20px; }
 .admin-heading { display: flex; justify-content: space-between; align-items: center; }
@@ -537,6 +553,8 @@ td .goal-actions { flex-wrap: nowrap; }
   .suggestion-dialog { padding: 21px 18px; border-radius: 16px; }
   .suggestion-dialog-actions { flex-direction: column-reverse; }
   .suggestion-dialog-actions .button { width: 100%; min-height: 46px; }
+  .onboarding-dialog .suggestion-dialog-actions { flex-direction: row; flex-wrap: wrap; }
+  .onboarding-dialog .suggestion-dialog-actions .button { width: auto; min-height: 42px; padding: 0 10px; font-size: .75rem; }
 }
 
 @media (max-width: 380px) {
