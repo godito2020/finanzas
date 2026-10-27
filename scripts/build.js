@@ -41,3 +41,15 @@ for (const file of webFiles) {
 fs.copyFileSync(path.join(projectRoot, 'app.bundle.js'), path.join(webOutput, 'app.bundle.js'));
 fs.mkdirSync(path.join(webOutput, 'vendor'), { recursive: true });
 fs.copyFileSync(path.join(vendorOutput, 'jspdf.umd.min.js'), path.join(webOutput, 'vendor', 'jspdf.umd.min.js'));
+
+const manualOutput = path.join(webOutput, 'manual');
+const manualImageOutput = path.join(manualOutput, 'img');
+fs.mkdirSync(manualImageOutput, { recursive: true });
+for (const file of ['index.html', 'tutorial-gastos-ingresos.mp4']) {
+  fs.copyFileSync(path.join(projectRoot, 'manual', file), path.join(manualOutput, file));
+}
+for (const file of fs.readdirSync(path.join(projectRoot, 'manual', 'img'))) {
+  if (path.extname(file).toLowerCase() === '.png') {
+    fs.copyFileSync(path.join(projectRoot, 'manual', 'img', file), path.join(manualImageOutput, file));
+  }
+}

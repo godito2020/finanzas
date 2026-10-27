@@ -1,4 +1,4 @@
-const CACHE_NAME = 'finanza-cache-v11';
+const CACHE_NAME = 'finanza-cache-v12';
 const APP_SHELL = [
   './',
   './index.html',
@@ -9,7 +9,20 @@ const APP_SHELL = [
   './icon-192.png',
   './icon-512.png',
   './api-config.js',
-  './vendor/jspdf.umd.min.js'
+  './vendor/jspdf.umd.min.js',
+  './manual/index.html',
+  './manual/img/01-resumen.png',
+  './manual/img/02-formulario.png',
+  './manual/img/03-descripcion.png',
+  './manual/img/04-tipo-categoria.png',
+  './manual/img/05-monto-fecha.png',
+  './manual/img/06-moneda.png',
+  './manual/img/07-guardado.png',
+  './manual/img/08-ingreso.png',
+  './manual/img/09-ingreso-guardado.png',
+  './manual/img/10-moneda-extranjera.png',
+  './manual/img/11-movimientos.png',
+  './manual/img/12-movil.png'
 ];
 
 self.addEventListener('install', (event) => {

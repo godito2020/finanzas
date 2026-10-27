@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual de usuario · Registrar gastos e ingresos</title>
+  <style>
+    :root {
+      --bg: #f5f5f0;
+      --surface: #ffffff;
+      --ink: #12291c;
+      --muted: #5f6b63;
+      --green: #1a7a50;
+      --green-soft: #e4f2e8;
+      --dark: #10241a;
+      --accent: #f2b33d;
+      --expense: #c2493d;
+      --line: #e3e1d8;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, "Segoe UI", system-ui, sans-serif; line-height: 1.6; }
+    a { color: var(--green); }
+    header.hero { background: var(--dark); color: #f4f1e8; padding: 56px 16px 64px; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .brand-mark { width: 44px; height: 44px; border-radius: 12px; background: #b9e6a8; color: var(--dark); font-weight: 900; font-size: 26px; display: grid; place-items: center; }
+    .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: #8fd3a8; margin: 0; }
+    h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.05; letter-spacing: -.02em; margin: 10px 0 14px; }
+    .hero p.lead { font-size: 19px; color: #c8d6cc; max-width: 640px; margin: 0; }
+    nav.toc { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    nav.toc a { color: #f4f1e8; text-decoration: none; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 6px 14px; font-size: 15px; }
+    nav.toc a:hover { background: rgba(255,255,255,.08); }
+    main { padding: 40px 0 64px; }
+    section.block { margin-bottom: 56px; }
+    h2 { font-size: 30px; letter-spacing: -.01em; margin: 0 0 6px; }
+    .section-intro { color: var(--muted); margin: 0 0 24px; }
+    .video-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 12px; }
+    .video-card video { width: 100%; display: block; border-radius: 10px; background: var(--dark); }
+    .video-card p { margin: 10px 6px 4px; color: var(--muted); font-size: 15px; }
+    ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: step; }
+    ol.steps > li { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 22px; margin-bottom: 18px; display: grid; grid-template-columns: 56px 1fr; gap: 18px; }
+    .num { width: 48px; height: 48px; border-radius: 14px; background: var(--accent); color: var(--dark); font-weight: 900; font-size: 24px; display: grid; place-items: center; }
+    ol.steps h3 { margin: 4px 0 6px; font-size: 21px; }
+    ol.steps p { margin: 0 0 12px; }
+    .shot { margin: 8px 0 0; }
+    .shot img { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--line); }
+    .shot figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
+    .fields { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 15px; }
+    .fields th, .fields td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .fields th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+    .tip { background: var(--green-soft); border-left: 4px solid var(--green); border-radius: 10px; padding: 12px 16px; margin: 12px 0 0; font-size: 15px; }
+    .warn { background: #fdf3df; border-left: 4px solid var(--accent); border-radius: 10px; padding: 12px 16px; margin: 12px 0 0; font-size: 15px; }
+    .tag { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; }
+    .tag.exp { background: #fbe6e3; color: var(--expense); }
+    .tag.inc { background: var(--green-soft); color: var(--green); }
+    .faq dt { font-weight: 700; margin-top: 16px; }
+    .faq dd { margin: 4px 0 0; color: var(--muted); }
+    footer { border-top: 1px solid var(--line); padding: 24px 16px; color: var(--muted); font-size: 14px; text-align: center; }
+    @media (max-width: 640px) {
+      ol.steps > li { grid-template-columns: 1fr; padding: 18px; }
+      .fields th:nth-child(3), .fields td:nth-child(3) { display: none; }
+    }
+    @media print {
+      header.hero { background: none; color: var(--ink); padding-top: 0; }
+      nav.toc, .video-card { display: none; }
+      ol.steps > li { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="brand"><span class="brand-mark">f.</span><strong>Finanza</strong></div>
+      <p class="eyebrow">Manual de usuario</p>
+      <h1>Cómo registrar gastos e ingresos</h1>
+      <p class="lead">Guía paso a paso del formulario <strong>Nuevo movimiento</strong>. Te tomará menos de un minuto registrar cada movimiento.</p>
+      <nav class="toc" aria-label="Contenido">
+        <a href="#video">Video tutorial</a>
+        <a href="#gasto">Registrar un gasto</a>
+        <a href="#ingreso">Registrar un ingreso</a>
+        <a href="#moneda">Otra moneda</a>
+        <a href="#historial">Editar o eliminar</a>
+        <a href="#faq">Preguntas frecuentes</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="block" id="video">
+      <h2>Video tutorial</h2>
+      <p class="section-intro">Mira el proceso completo en 1 minuto y 17 segundos.</p>
+      <div class="video-card">
+        <video controls preload="metadata" poster="img/07-guardado.png">
+          <source src="tutorial-gastos-ingresos.mp4" type="video/mp4" />
+          Tu navegador no puede reproducir el video. <a href="tutorial-gastos-ingresos.mp4">Descárgalo aquí</a>.
+        </video>
+        <p>¿No se reproduce? <a href="tutorial-gastos-ingresos.mp4" download>Descargar el video (MP4)</a>.</p>
+      </div>
+    </section>
+
+    <section class="block" id="gasto">
+      <h2>Registrar un gasto <span class="tag exp">Gasto</span></h2>
+      <p class="section-intro">Ejemplo: una compra de mercado de S/ 150.50.</p>
+      <ol class="steps">
+        <li>
+          <span class="num">1</span>
+          <div>
+            <h3>Abre “Nuevo movimiento”</h3>
+            <p>Inicia sesión y, en el menú lateral, pulsa <strong>＋ Nuevo movimiento</strong>. En el celular usa el botón <strong>＋ Agregar</strong> de la barra inferior. La página baja directamente al formulario <em>Registro rápido</em>.</p>
+            <figure class="shot"><img src="img/01-resumen.png" alt="Pantalla de resumen con el menú Nuevo movimiento" loading="lazy" /><figcaption>Menú lateral con la opción “Nuevo movimiento”.</figcaption></figure>
+          </div>
+        </li>
+        <li>
+          <span class="num">2</span>
+          <div>
+            <h3>Describe el movimiento</h3>
+            <p>En <strong>¿En qué consiste?</strong> escribe una descripción corta (máximo 80 caracteres), por ejemplo “Mercado semanal” o “Recibo de luz”.</p>
+            <figure class="shot"><img src="img/03-descripcion.png" alt="Campo de descripción con el texto Mercado semanal" loading="lazy" /></figure>
+          </div>
+        </li>
+        <li>
+          <span class="num">3</span>
+          <div>
+            <h3>Elige el tipo y la categoría</h3>
+            <p>En <strong>Tipo de movimiento</strong> selecciona <strong>Gasto</strong>. En <strong>Categoría</strong> elige la que corresponda: Alimentación, Vivienda, Transporte, Salud, Entretenimiento, Educación, Ahorro, Otros o una categoría propia.</p>
+            <figure class="shot"><img src="img/04-tipo-categoria.png" alt="Tipo Gasto y categoría Alimentación seleccionados" loading="lazy" /></figure>
+            <p class="tip">Puedes crear tus propias categorías en la sección <strong>Tus categorías</strong>, debajo del formulario.</p>
+          </div>
+        </li>
+        <li>
+          <span class="num">4</span>
+          <div>
+            <h3>Ingresa el monto y la fecha</h3>
+            <p>Escribe el <strong>Monto</strong> sin signos (ej. <code>150.50</code>); debe ser mayor a 0. La <strong>Fecha</strong> viene con el día de hoy; cámbiala si el movimiento fue otro día.</p>
+            <figure class="shot"><img src="img/05-monto-fecha.png" alt="Monto 150.50 y fecha 26/10/2026" loading="lazy" /></figure>
+          </div>
+        </li>
+        <li>
+          <span class="num">5</span>
+          <div>
+            <h3>Confirma la moneda</h3>
+            <p>Por defecto es <strong>Soles (PEN)</strong>. Si pagaste en otra moneda, revisa la sección <a href="#moneda">Registrar en otra moneda</a>.</p>
+            <figure class="shot"><img src="img/06-moneda.png" alt="Moneda Soles PEN y botón Guardar movimiento" loading="lazy" /></figure>
+          </div>
+        </li>
+        <li>
+          <span class="num">6</span>
+          <div>
+            <h3>Guarda y revisa tu resumen</h3>
+            <p>Pulsa <strong>Guardar movimiento</strong>. Aparecerá el aviso <em>“Movimiento guardado.”</em> y se actualizarán al instante el <strong>Balance del mes</strong>, los <strong>Gastos</strong>, el gráfico de tendencia y el de <strong>Gastos por categoría</strong>. El formulario queda limpio para el siguiente registro.</p>
+            <figure class="shot"><img src="img/07-guardado.png" alt="Aviso Movimiento guardado y tarjetas actualizadas" loading="lazy" /></figure>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="block" id="ingreso">
+      <h2>Registrar un ingreso <span class="tag inc">Ingreso</span></h2>
+      <p class="section-intro">Es el mismo formulario; solo cambia el tipo. Ejemplo: sueldo de S/ 3,500.</p>
+      <ol class="steps">
+        <li>
+          <span class="num">1</span>
+          <div>
+            <h3>Completa el formulario como ingreso</h3>
+            <table class="fields">
+              <thead><tr><th>Campo</th><th>Valor de ejemplo</th><th>Nota</th></tr></thead>
+              <tbody>
+                <tr><td>¿En qué consiste?</td><td>Sueldo de octubre</td><td>Descripción corta</td></tr>
+                <tr><td>Tipo de movimiento</td><td><strong>Ingreso</strong></td><td>Lo que cambia respecto al gasto</td></tr>
+                <tr><td>Categoría</td><td>Ingresos</td><td>O la que prefieras</td></tr>
+                <tr><td>Monto</td><td>3500</td><td>Mayor a 0</td></tr>
+                <tr><td>Fecha / Moneda</td><td>Hoy · Soles (PEN)</td><td>Valores por defecto</td></tr>
+              </tbody>
+            </table>
+            <figure class="shot"><img src="img/08-ingreso.png" alt="Formulario completado como ingreso" loading="lazy" /></figure>
+          </div>
+        </li>
+        <li>
+          <span class="num">2</span>
+          <div>
+            <h3>Guarda y mira el balance</h3>
+            <p>Pulsa <strong>Guardar movimiento</strong>. Suben los <strong>Ingresos</strong>, el <strong>Balance del mes</strong> (ingresos menos gastos) y el <strong>Ahorro sugerido</strong> (30% de tus ingresos del mes).</p>
+            <figure class="shot"><img src="img/09-ingreso-guardado.png" alt="Resumen con ingresos de S/ 3,500 y balance de S/ 3,349.50" loading="lazy" /></figure>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="block" id="moneda">
+      <h2>Registrar en otra moneda</h2>
+      <p class="section-intro">Para movimientos en dólares (USD) o euros (EUR).</p>
+      <ol class="steps">
+        <li>
+          <span class="num">!</span>
+          <div>
+            <h3>Indica el tipo de cambio</h3>
+            <p>Al elegir <strong>Dólares (USD)</strong> o <strong>Euros (EUR)</strong> aparece el campo <strong>Tipo de cambio a moneda principal</strong>. Escribe cuántos soles vale una unidad de esa moneda (ej. <code>3.75</code>). El sistema lo usa para convertir el monto a tu moneda principal en el resumen.</p>
+            <figure class="shot"><img src="img/10-moneda-extranjera.png" alt="Moneda USD con el campo Tipo de cambio" loading="lazy" /></figure>
+            <p class="warn">Si dejas vacío el tipo de cambio en una moneda extranjera, el movimiento no se guardará.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="block" id="historial">
+      <h2>Ver, editar o eliminar</h2>
+      <p class="section-intro">Todos tus registros quedan en <strong>Movimientos</strong> (menú lateral).</p>
+      <ol class="steps">
+        <li>
+          <span class="num">↕</span>
+          <div>
+            <h3>Tu historial</h3>
+            <p>Los ingresos aparecen en verde con signo <strong>+</strong> y los gastos en rojo con <strong>−</strong>. Puedes buscar y filtrar por tipo, categoría y período. Usa <strong>Editar</strong> para corregir un movimiento (el formulario cambia a <em>Editar movimiento</em>; pulsa <em>Cancelar edición</em> si te arrepientes) o <strong>Eliminar</strong> para borrarlo.</p>
+            <figure class="shot"><img src="img/11-movimientos.png" alt="Tabla de movimientos con el sueldo y el mercado" loading="lazy" /></figure>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="block" id="faq">
+      <h2>Preguntas frecuentes</h2>
+      <dl class="faq">
+        <dt>El botón “Guardar movimiento” no hace nada.</dt>
+        <dd>Revisa que la descripción no esté vacía, que el monto sea mayor a 0, que haya una fecha y, en moneda extranjera, que el tipo de cambio esté completo.</dd>
+        <dt>¿Qué es “Registro inteligente”?</dt>
+        <dd>Es una función Pro que registra movimientos a partir de una foto del recibo o de tu voz. El registro manual descrito en este manual siempre está disponible.</dd>
+        <dt>¿Quién ve mis movimientos?</dt>
+        <dd>Solo tú: tus movimientos y categorías son privados y están protegidos en tu cuenta.</dd>
+        <dt>¿Puedo registrar desde el celular?</dt>
+        <dd>Sí. En la versión móvil usa el botón <strong>＋ Agregar</strong> de la barra inferior; el formulario es el mismo.</dd>
+      </dl>
+    </section>
+  </main>
+
+  <footer>Finanza · Manual de usuario · Registrar gastos e ingresos · Octubre 2026</footer>
+</body>
+</html>
