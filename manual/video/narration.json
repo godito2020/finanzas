@@ -1,0 +1,15 @@
+{
+  "intro": "Bienvenido a Finanza. En este video aprenderás a registrar tus gastos y tus ingresos, paso a paso.",
+  "s1": "Primero, en el menú lateral, haz clic en «Nuevo movimiento». En el celular, usa el botón «Agregar».",
+  "s2": "En el campo «¿En qué consiste?», escribe una descripción corta. Por ejemplo: «Mercado semanal».",
+  "s3": "Luego, elige el tipo de movimiento. Para un gasto, selecciona «Gasto», y después su categoría.",
+  "s4": "Ahora, escribe el monto. La fecha de hoy aparece por defecto, pero puedes cambiarla.",
+  "s5": "Revisa la moneda. Si usas dólares o euros, escribe también el tipo de cambio.",
+  "s6": "Cuando todo esté listo, haz clic en «Guardar movimiento».",
+  "s7": "Verás el mensaje «Movimiento guardado», y tu resumen se actualizará al instante.",
+  "mid": "Ahora, registremos un ingreso. Es el mismo formulario.",
+  "s8": "Escribe la descripción, cambia el tipo a «Ingreso», elige la categoría «Ingresos» y escribe el monto.",
+  "s9": "Al guardar, tus ingresos, tu balance y tu ahorro sugerido se actualizan.",
+  "s10": "Encontrarás todos tus registros en «Movimientos». Desde ahí puedes editarlos o eliminarlos.",
+  "outro": "¡Listo! Así de fácil mantienes tus números en orden."
+}

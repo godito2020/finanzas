@@ -1,0 +1,62 @@
+<template>
+  <style>
+
+    #root { position: absolute; inset: 0; background: #10241a; font-family: Inter, sans-serif; color: #f4f1e8; overflow: hidden; }
+
+    #s5-bg { position: absolute; inset: 0; background: radial-gradient(1200px 700px at 30% 40%, #1d4630 0%, #10241a 70%); }
+    #s5-stage { position: absolute; left: 80px; top: 171px; width: 1180px; height: 737.5px; border-radius: 18px; overflow: hidden; background: #f5f5f0; box-shadow: 0 30px 80px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.08); }
+    #s5-bar { position: absolute; left: 80px; top: 131px; width: 1180px; height: 40px; border-radius: 18px 18px 0 0; background: #e9e7df; display: flex; align-items: center; gap: 10px; padding: 0 18px; }
+    #s5-bar i { width: 12px; height: 12px; border-radius: 50%; background: #c9c6bb; display: block; }
+    #s5-bar span { margin-left: 18px; font-size: 16px; color: #6b6a63; background: #f7f6f1; border-radius: 8px; padding: 4px 16px; }
+    #s5-cam { position: absolute; left: 0; top: 0; width: 1440px; height: 900px; transform-origin: 0 0; }
+    #s5-cam img { position: absolute; left: 0; top: 0; width: 1440px; height: 900px; }
+    #s5-hl { position: absolute; left: 332px; top: 346px; width: 517px; height: 104px; border: 4px solid #f2b33d; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(16,36,26,0.38), 0 0 24px rgba(242,179,61,0.7); }
+    #s5-cursor { position: absolute; left: 0; top: 0; width: 34px; height: 34px; }
+    #s5-ripple { position: absolute; left: 560.5px; top: 368px; width: 60px; height: 60px; border-radius: 50%; border: 4px solid #f2b33d; }
+    #s5-panel { position: absolute; left: 1310px; top: 171px; width: 540px; }
+    #s5-group { font-size: 28px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #8fd3a8; }
+    #s5-num { margin-top: 18px; width: 96px; height: 96px; border-radius: 26px; background: #f2b33d; color: #10241a; font-size: 56px; font-weight: 900; display: flex; align-items: center; justify-content: center; }
+    #s5-title { margin-top: 34px; font-size: 54px; line-height: 1.08; font-weight: 900; letter-spacing: -0.02em; }
+    #s5-body { margin-top: 24px; font-size: 30px; line-height: 1.35; color: #c8d6cc; }
+  </style>
+  <div id="root" data-composition-id="s5" data-width="1920" data-height="1080">
+    <div id="s5-bg"></div>
+    <div id="s5-bar" data-layout-ignore><i></i><i></i><i></i><span>localhost/finanza/#capture</span></div>
+    <div id="s5-stage">
+      <div id="s5-cam">
+        <img id="s5-img-a" src="assets/img/06-moneda.png" alt="" />
+        <img id="s5-img-b" src="assets/img/10-moneda-extranjera.png" alt="" />
+        <div id="s5-hl"></div>
+        <div id="s5-ripple"></div>
+        <svg id="s5-cursor" viewBox="0 0 24 24"><path d="M3 2l7 19 2.6-7.4L20 11z" fill="#ffffff" stroke="#10241a" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+    <div id="s5-panel">
+      <div id="s5-group">Gasto</div>
+      <div id="s5-num">5</div>
+      <div id="s5-title">Confirma la moneda</div>
+      <div id="s5-body">Soles por defecto. En USD o EUR, escribe el tipo de cambio.</div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    const P = "#s5";
+    tl.fromTo(P + "-stage, " + P + "-bar", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0);
+    tl.fromTo(P + "-cam", { scale: 0.8194, x: 0, y: 0 }, { scale: 0.8194, x: 0, y: 0, duration: 0.01 }, 0);
+    tl.to(P + "-cam", { scale: 1.6958, x: -411.4, y: -306.2, duration: 1.1, ease: "power2.inOut" }, 0.9);
+    tl.to(P + "-cam", { scale: 1.7806, x: -461.5, y: -339.9, duration: 5.20, ease: "sine.inOut" }, 2.0);
+    tl.fromTo(P + "-group", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, 0.3);
+    tl.fromTo(P + "-num", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, 0.4);
+    tl.fromTo(P + "-title", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.55);
+    tl.fromTo(P + "-body", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.8);
+    tl.fromTo(P + "-hl", { opacity: 0, scale: 1.08, transformOrigin: "50% 50%" }, { opacity: 1, scale: 1, duration: 0.5, ease: "power2.out" }, 2.0);
+    tl.fromTo(P + "-cursor", { opacity: 0, x: 810.5, y: 558 }, { opacity: 1, x: 810.5, y: 558, duration: 0.2 }, 2.1);
+    tl.to(P + "-cursor", { x: 586.5, y: 396, duration: 0.8, ease: "power2.inOut" }, 2.3);
+    tl.to(P + "-cursor", { scale: 0.85, duration: 0.08, yoyo: true, repeat: 1, transformOrigin: "10% 10%" }, 3.1);
+    tl.fromTo(P + "-ripple", { opacity: 0.9, scale: 0.3 }, { opacity: 0, scale: 1.6, duration: 0.6, ease: "power2.out" }, 3.1);
+    tl.set(P + "-ripple", { opacity: 0 }, 0);
+    tl.fromTo(P + "-img-b", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power1.inOut" }, 3.3);
+    tl.to(P + "-stage, " + P + "-bar, " + P + "-panel", { opacity: 0, duration: 0.35, ease: "power1.in" }, 7.30);
+    window.__timelines["s5"] = tl;
+  </script>
+</template>

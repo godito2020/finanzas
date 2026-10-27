@@ -1,0 +1,33 @@
+<template>
+  <style>
+
+    #root { position: absolute; inset: 0; background: #10241a; font-family: Inter, sans-serif; color: #f4f1e8; overflow: hidden; }
+
+    #outro-bg { position: absolute; inset: 0; background: radial-gradient(1100px 700px at 50% 45%, #1f5235 0%, #10241a 70%); }
+    #outro-wrap { position: absolute; left: 192px; right: 192px; top: 300px; text-align: center; }
+    #outro-logo { margin: 0 auto; width: 120px; height: 120px; border-radius: 30px; background: #b9e6a8; color: #10241a; font-size: 72px; font-weight: 900; display: flex; align-items: center; justify-content: center; }
+    #outro-kicker { margin-top: 40px; font-size: 30px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #8fd3a8; }
+    #outro-title { margin-top: 18px; font-size: 92px; line-height: 1.04; font-weight: 900; letter-spacing: -0.03em; }
+    #outro-sub { margin-top: 26px; font-size: 34px; color: #c8d6cc; }
+  </style>
+  <div id="root" data-composition-id="outro" data-width="1920" data-height="1080">
+    <div id="outro-bg"></div>
+    <div id="outro-wrap">
+      <div id="outro-logo">f.</div>
+      <div id="outro-kicker">Listo</div>
+      <div id="outro-title">Tus números, en orden</div>
+      <div id="outro-sub">Gastos e ingresos se reflejan al instante en tu resumen</div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    const P = "#outro";
+    if ("outro" !== "intro") tl.fromTo(P + "-logo", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(2)" }, 0.1);
+    if ("outro" !== "intro") tl.fromTo(P + "-kicker", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.35);
+    if ("outro" !== "intro") tl.fromTo(P + "-title", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.7, ease: "power3.out" }, 0.5);
+    tl.fromTo(P + "-sub", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.8);
+    tl.fromTo(P + "-wrap", { scale: 1 }, { scale: 1.05, duration: 7.3, ease: "none" }, 0);
+    tl.to(P + "-wrap", { opacity: 0, duration: 0.35, ease: "power1.in" }, 6.8999999999999995);
+    window.__timelines["outro"] = tl;
+  </script>
+</template>
