@@ -398,6 +398,9 @@ td .goal-actions { flex-wrap: nowrap; }
 .suggestion-close { min-width: 38px; min-height: 38px; padding: 0; font-size: 1.35rem; }
 .suggestion-dialog .section-description { margin: 0 0 16px; }
 .suggestion-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 5px; }
+.onboarding-dialog { max-width: 580px; }
+.onboarding-dialog .section-description { min-height: 72px; line-height: 1.65; }
+.onboarding-status { margin-top: 12px; }
 .admin-panel { display: grid; gap: 15px; margin-bottom: 20px; }
 .admin-heading { display: flex; justify-content: space-between; align-items: center; }
 .admin-heading h2 { margin: 5px 0 0; }
@@ -420,6 +423,13 @@ td .goal-actions { flex-wrap: nowrap; }
 .admin-record label input, .admin-record label select { min-height: 39px; font-size: .78rem; }
 .admin-record .admin-check { display: flex; align-items: center; gap: 8px; }
 .admin-check input { width: 18px; min-height: 18px; }
+.admin-user-status { margin: 0; align-self: center; font-size: .76rem; }
+.admin-user-status.verified { color: var(--green-dark); }
+.admin-user-status.unverified { color: #a66a13; }
+.admin-user-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-user-actions .button { min-height: 38px; padding: 0 11px; font-size: .75rem; }
+.button-delete { border-color: #f0d5d1; background: #fcf0ed; color: #a33f39; }
+.button-delete:hover { background: #f7e1dc; }
 .suggestion-record > div:first-child, .assignment-record > div:first-child { min-width: 0; }
 .suggestion-record > div p { margin: 7px 0 0; color: #536056; font-size: .82rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .suggestion-record > div strong, .assignment-record > div strong { font-size: .8rem; overflow-wrap: anywhere; }

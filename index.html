@@ -33,6 +33,7 @@
             <input id="loginPassword" type="password" autocomplete="current-password" required />
             <button class="button button-primary wide" type="submit">Iniciar sesión</button>
             <button class="auth-link" id="showRecoveryButton" type="button">Olvidé mi contraseña</button>
+            <button class="auth-link" data-auth-view="verifyEmail" type="button">Activar mi cuenta con un código</button>
             <p class="auth-switch">¿Primera vez aquí? <button class="auth-link" data-auth-view="register" type="button">Crea tu cuenta</button></p>
             <button class="button button-install wide" id="authInstallButton" type="button" hidden>Instalar app</button>
             <p class="auth-install-help" id="authInstallHelp" role="status" hidden></p>
@@ -61,6 +62,16 @@
             <input id="registerPassword" type="password" autocomplete="new-password" minlength="12" required />
             <button class="button button-primary wide" type="submit">Crear cuenta</button>
             <p class="auth-switch">¿Ya tienes cuenta? <button class="auth-link" data-auth-view="login" type="button">Inicia sesión</button></p>
+          </form>
+
+          <form class="auth-form" id="verifyEmailForm" hidden>
+            <label for="verificationEmail">Correo electrónico</label>
+            <input id="verificationEmail" type="email" autocomplete="email" maxlength="254" required />
+            <label for="verificationCode">Código de activación de 8 dígitos</label>
+            <input id="verificationCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" required />
+            <button class="button button-primary wide" type="submit">Verificar correo y entrar</button>
+            <button class="auth-link" id="resendActivationButton" type="button">Reenviar código de activación</button>
+            <button class="auth-link" data-auth-view="login" type="button">Volver a iniciar sesión</button>
           </form>
 
           <form class="auth-form" id="requestResetForm" hidden>
@@ -430,12 +441,24 @@
         </div>
       </form>
     </dialog>
+    <dialog class="suggestion-dialog onboarding-dialog" id="onboardingDialog" aria-labelledby="onboardingTitle">
+      <div class="suggestion-dialog-header">
+        <div><p class="eyebrow" id="onboardingStepLabel">GUÍA INICIAL</p><h2 id="onboardingTitle">Conoce Finanza</h2></div>
+      </div>
+      <p class="section-description" id="onboardingDescription"></p>
+      <p class="auth-message onboarding-status" id="onboardingStatus" role="status" aria-live="polite" hidden></p>
+      <div class="suggestion-dialog-actions">
+        <button class="button button-quiet" id="skipOnboardingButton" type="button">Omitir guía</button>
+        <button class="button button-quiet" id="previousOnboardingButton" type="button">Anterior</button>
+        <button class="button button-primary" id="nextOnboardingButton" type="button">Siguiente</button>
+      </div>
+    </dialog>
     <dialog class="suggestion-dialog ai-assistant-dialog" id="aiAssistantDialog" aria-labelledby="aiAssistantTitle">
       <div class="suggestion-dialog-header">
         <div><p class="eyebrow">ASISTENTE INTELIGENTE</p><h2 id="aiAssistantTitle">Registro inteligente</h2></div>
         <button class="button button-reset suggestion-close" id="closeAiAssistantButton" type="button" aria-label="Cerrar">×</button>
       </div>
-      <p class="section-description">Sube la foto de un comprobante o dicta un movimiento. Gemini analizará los datos y completará el formulario; revisa el resultado antes de guardarlo. La foto y el texto reconocido se envían a Google Gemini y no se guardan en Finanza. El dictado depende del servicio de voz de tu navegador.</p>
+      <p class="section-description">Sube la foto de un comprobante o dicta un movimiento. La IA analizará los datos y completará el formulario; revisa el resultado antes de guardarlo. La foto y el texto reconocido se envían al servicio de IA configurado y no se guardan en Finanza. El dictado depende del servicio de voz de tu navegador.</p>
       <section class="ai-paid-offer" id="aiPaidOffer" hidden>
         <h3>Finanza Pro: S/ 10 al mes</h3>
         <p>Suscripción mensual recurrente. Paga por el medio indicado por el administrador y solicita la activación. El acceso se habilita tras verificar el pago y dura 30 días; la renovación es manual y no se realizan cobros automáticos.</p>

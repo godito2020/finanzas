@@ -9,6 +9,7 @@ $localConfigPath = __DIR__ . '/config.local.php';
 $GLOBALS['finanza_config'] = is_file($localConfigPath) ? require $localConfigPath : [];
 
 const RESET_CODE_LIFETIME = 900;
+const EMAIL_VERIFICATION_LIFETIME = 86400;
 const ACCESS_TOKEN_LIFETIME = 2592000;
 const MAX_REQUEST_BYTES = 65536;
 
@@ -95,6 +96,8 @@ function database(): PDO
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT \'user\',
             is_active INTEGER NOT NULL DEFAULT 1,
+            email_verified INTEGER NOT NULL DEFAULT 1,
+            onboarding_completed INTEGER NOT NULL DEFAULT 1,
             created_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -105,6 +108,13 @@ function database(): PDO
         );
         CREATE INDEX IF NOT EXISTS auth_tokens_user_id ON auth_tokens(user_id);
         CREATE TABLE IF NOT EXISTS password_resets (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            code_hash TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_sent_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS email_verifications (
             user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
             code_hash TEXT NOT NULL,
             expires_at INTEGER NOT NULL,
@@ -199,6 +209,12 @@ function database(): PDO
     }
     if (!in_array('is_active', $userColumns, true)) {
         $connection->exec('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!in_array('email_verified', $userColumns, true)) {
+        $connection->exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!in_array('onboarding_completed', $userColumns, true)) {
+        $connection->exec('ALTER TABLE users ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 1');
     }
     $transactionColumns = array_column($connection->query('PRAGMA table_info(transactions)')->fetchAll(), 'name');
     if (!in_array('currency', $transactionColumns, true)) {
@@ -330,9 +346,10 @@ function authenticatedUser(): array
     }
 
     $statement = database()->prepare(
-        'SELECT users.id, users.name, users.email, users.role, auth_tokens.token_hash
+        'SELECT users.id, users.name, users.email, users.role, users.onboarding_completed, auth_tokens.token_hash
          FROM auth_tokens JOIN users ON users.id = auth_tokens.user_id
-         WHERE auth_tokens.token_hash = ? AND auth_tokens.expires_at > ? AND users.is_active = 1'
+         WHERE auth_tokens.token_hash = ? AND auth_tokens.expires_at > ?
+           AND users.is_active = 1 AND users.email_verified = 1'
     );
     $statement->execute([hash('sha256', $matches[1]), time()]);
     $user = $statement->fetch();
@@ -345,10 +362,11 @@ function authenticatedUser(): array
 function publicUser(array $user): array
 {
     return ['id' => (int) $user['id'], 'name' => $user['name'], 'email' => $user['email'],
-        'role' => $user['role'] ?? 'user'];
+        'role' => $user['role'] ?? 'user',
+        'onboardingCompleted' => (bool) ($user['onboarding_completed'] ?? 1)];
 }
 
-function sendRecoveryCode(string $email, string $code): void
+function sendAccountEmail(string $email, string $subject, string $htmlBody, string $textBody): void
 {
     $host = appSetting('smtp_host', envValue('FINANZA_SMTP_HOST'));
     $username = appSetting('smtp_user', envValue('FINANZA_SMTP_USER'));
@@ -373,12 +391,55 @@ function sendRecoveryCode(string $email, string $code): void
     $mail->setFrom($fromEmail, $fromName);
     $mail->addAddress($email);
     $mail->isHTML(true);
-    $mail->Subject = 'Tu código de recuperación de ' . appSetting('app_name', 'Finanza');
-    $mail->Body = '<p>Tu código de recuperación es:</p><p style="font-size:28px;font-weight:bold;letter-spacing:5px">' .
-        htmlspecialchars($code, ENT_QUOTES, 'UTF-8') .
-        '</p><p>Caduca en 15 minutos. Si no solicitaste este código, ignora este mensaje.</p>';
-    $mail->AltBody = "Tu código de recuperación es: {$code}. Caduca en 15 minutos.";
+    $mail->Subject = $subject;
+    $mail->Body = $htmlBody;
+    $mail->AltBody = $textBody;
     $mail->send();
+}
+
+function sendRecoveryCode(string $email, string $code): void
+{
+    $safeCode = htmlspecialchars($code, ENT_QUOTES, 'UTF-8');
+    $name = appSetting('app_name', 'Finanza');
+    sendAccountEmail(
+        $email,
+        'Tu código de recuperación de ' . $name,
+        '<p>Tu código de recuperación es:</p><p style="font-size:28px;font-weight:bold;letter-spacing:5px">' .
+            $safeCode . '</p><p>Caduca en 15 minutos. Si no solicitaste este código, ignora este mensaje.</p>',
+        "Tu código de recuperación es: {$code}. Caduca en 15 minutos."
+    );
+}
+
+function sendEmailVerificationCode(string $email, string $code): void
+{
+    $safeCode = htmlspecialchars($code, ENT_QUOTES, 'UTF-8');
+    $name = appSetting('app_name', 'Finanza');
+    sendAccountEmail(
+        $email,
+        'Activa tu cuenta de ' . $name,
+        '<p>Usa este código para activar tu cuenta:</p><p style="font-size:28px;font-weight:bold;letter-spacing:5px">' .
+            $safeCode . '</p><p>Caduca en 24 horas. Si no creaste esta cuenta, ignora este mensaje.</p>',
+        "Tu código para activar la cuenta es: {$code}. Caduca en 24 horas."
+    );
+}
+
+function saveEmailVerification(PDO $db, int $userId, string $email): void
+{
+    $code = (string) random_int(10000000, 99999999);
+    $now = time();
+    $statement = $db->prepare(
+        'INSERT INTO email_verifications (user_id, code_hash, expires_at, attempts, last_sent_at)
+         VALUES (?, ?, ?, 0, ?)
+         ON CONFLICT(user_id) DO UPDATE SET code_hash = excluded.code_hash,
+         expires_at = excluded.expires_at, attempts = 0, last_sent_at = excluded.last_sent_at'
+    );
+    $statement->execute([$userId, password_hash($code, PASSWORD_DEFAULT), $now + EMAIL_VERIFICATION_LIFETIME, $now]);
+    try {
+        sendEmailVerificationCode($email, $code);
+    } catch (Throwable $error) {
+        $db->prepare('DELETE FROM email_verifications WHERE user_id = ?')->execute([$userId]);
+        throw $error;
+    }
 }
 
 function validateTransaction(array $data, ?string $baseCurrency = null): array
@@ -782,7 +843,10 @@ function handleRequest(string $action, string $method, array $data): array
         }
         enforceRateLimit('register:' . hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown'), 8, 3600);
         try {
-            $statement = $db->prepare('INSERT INTO users (name, email, password_hash, created_at) VALUES (?, ?, ?, ?)');
+            $statement = $db->prepare(
+                'INSERT INTO users (name, email, password_hash, email_verified, onboarding_completed, created_at)
+                 VALUES (?, ?, ?, 0, 0, ?)'
+            );
             $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), time()]);
         } catch (PDOException $error) {
             if (str_contains(strtolower($error->getMessage()), 'unique')) {
@@ -791,7 +855,88 @@ function handleRequest(string $action, string $method, array $data): array
             throw $error;
         }
         $id = (int) $db->lastInsertId();
-        return ['token' => issueToken($id), 'user' => ['id' => $id, 'name' => $name, 'email' => $email, 'role' => 'user']];
+        try {
+            saveEmailVerification($db, $id, $email);
+        } catch (Throwable $mailError) {
+            error_log('Finanza activation email error: ' . $mailError->getMessage());
+            throw new ApiError(503, 'La cuenta se creó, pero no se pudo enviar el código. Revisa el correo e intenta reenviarlo.');
+        }
+        return ['message' => 'Te enviamos un código de activación. Ingrésalo para confirmar tu correo y entrar.'];
+    }
+
+    if ($action === 'resend-activation' && $method === 'POST') {
+        $email = strtolower(requiredString($data, 'email', 254));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new ApiError(422, 'Escribe un correo válido.');
+        }
+        enforceRateLimit('activation-ip:' . hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown'), 10, 3600);
+        enforceRateLimit('activation-email:' . hash('sha256', $email), 5, 3600);
+        $statement = $db->prepare('SELECT id, email_verified FROM users WHERE email = ?');
+        $statement->execute([$email]);
+        $target = $statement->fetch();
+        if ($target && !(int) $target['email_verified']) {
+            $userId = (int) $target['id'];
+            $existing = $db->prepare('SELECT last_sent_at FROM email_verifications WHERE user_id = ?');
+            $existing->execute([$userId]);
+            $lastSentAt = $existing->fetchColumn();
+            if ($lastSentAt !== false && time() - (int) $lastSentAt < 60) {
+                throw new ApiError(429, 'Espera un minuto antes de solicitar otro código.');
+            }
+            try {
+                saveEmailVerification($db, $userId, $email);
+            } catch (Throwable $mailError) {
+                error_log('Finanza activation email error: ' . $mailError->getMessage());
+                throw new ApiError(503, 'No se pudo enviar el código. Revisa la configuración del correo e inténtalo nuevamente.');
+            }
+        }
+        return ['message' => 'Si el correo corresponde a una cuenta pendiente, recibirás un código de activación.'];
+    }
+
+    if ($action === 'verify-email' && $method === 'POST') {
+        $email = strtolower(requiredString($data, 'email', 254));
+        $code = requiredString($data, 'code', 8);
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !preg_match('/^[0-9]{8}$/', $code)) {
+            throw new ApiError(422, 'Escribe un correo válido y el código de 8 dígitos.');
+        }
+        $statement = $db->prepare(
+            'SELECT users.id, users.name, users.email, users.role, users.email_verified,
+                    email_verifications.code_hash, email_verifications.expires_at, email_verifications.attempts
+             FROM users LEFT JOIN email_verifications ON email_verifications.user_id = users.id
+             WHERE users.email = ?'
+        );
+        $statement->execute([$email]);
+        $verification = $statement->fetch();
+        if (!$verification || (int) $verification['email_verified']) {
+            throw new ApiError(400, 'El código no es válido o la cuenta ya fue activada.');
+        }
+        if (!$verification['code_hash'] || (int) $verification['expires_at'] <= time() ||
+            (int) $verification['attempts'] >= 5) {
+            throw new ApiError(400, 'El código no es válido o ya caducó. Solicita uno nuevo.');
+        }
+        if (!password_verify($code, $verification['code_hash'])) {
+            $db->prepare('UPDATE email_verifications SET attempts = attempts + 1 WHERE user_id = ?')
+                ->execute([(int) $verification['id']]);
+            throw new ApiError(400, 'El código no es válido o ya caducó. Solicita uno nuevo.');
+        }
+        $db->beginTransaction();
+        try {
+            $db->prepare('UPDATE users SET email_verified = 1 WHERE id = ?')
+                ->execute([(int) $verification['id']]);
+            $db->prepare('DELETE FROM email_verifications WHERE user_id = ?')
+                ->execute([(int) $verification['id']]);
+            $db->commit();
+        } catch (Throwable $error) {
+            $db->rollBack();
+            throw $error;
+        }
+        $user = [
+            'id' => (int) $verification['id'],
+            'name' => $verification['name'],
+            'email' => $verification['email'],
+            'role' => $verification['role'],
+            'onboarding_completed' => 0
+        ];
+        return ['token' => issueToken((int) $verification['id']), 'user' => publicUser($user)];
     }
 
     if ($action === 'login' && $method === 'POST') {
@@ -801,11 +946,17 @@ function handleRequest(string $action, string $method, array $data): array
             throw new ApiError(422, 'Correo o contraseña incorrectos.');
         }
         enforceRateLimit('login:' . hash('sha256', strtolower($email) . '|' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown')), 10, 900);
-        $statement = $db->prepare('SELECT id, name, email, password_hash, role, is_active FROM users WHERE email = ?');
+        $statement = $db->prepare(
+            'SELECT id, name, email, password_hash, role, is_active, email_verified, onboarding_completed
+             FROM users WHERE email = ?'
+        );
         $statement->execute([$email]);
         $user = $statement->fetch();
         if (!$user || !(int) $user['is_active'] || !password_verify($password, $user['password_hash'])) {
             throw new ApiError(401, 'Correo o contraseña incorrectos.');
+        }
+        if (!(int) $user['email_verified']) {
+            throw new ApiError(403, 'Confirma tu correo con el código de activación antes de iniciar sesión.');
         }
         if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
             $update = $db->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
@@ -888,7 +1039,7 @@ function handleRequest(string $action, string $method, array $data): array
         return ['message' => 'Contraseña actualizada. Inicia sesión con la nueva contraseña.'];
     }
 
-    if ($action === 'login' || $action === 'register' || $action === 'request-reset' || $action === 'reset-password') {
+    if (in_array($action, ['login', 'register', 'resend-activation', 'verify-email', 'request-reset', 'reset-password'], true)) {
         throw new ApiError(405, 'Método no permitido.');
     }
 
@@ -952,20 +1103,22 @@ function handleRequest(string $action, string $method, array $data): array
 
     $masterActions = [
         'admin-users', 'admin-settings', 'admin-upload', 'admin-suggestions',
-        'admin-subscriptions', 'admin-assignments', 'admin-ai-requests'
+        'admin-subscriptions', 'admin-assignments', 'admin-ai-requests', 'admin-resend-activation'
     ];
     if (in_array($action, $masterActions, true)) {
         requireMaster($user);
 
         if ($action === 'admin-users' && $method === 'GET') {
             $statement = $db->query(
-                "SELECT id, name, email, is_active, created_at FROM users WHERE role = 'user' ORDER BY id DESC LIMIT 500"
+                "SELECT id, name, email, is_active, email_verified, created_at
+                 FROM users WHERE role = 'user' ORDER BY id DESC LIMIT 500"
             );
             return ['users' => array_map(static function (array $row): array {
                 $row['id'] = (int) $row['id'];
                 $row['isActive'] = (bool) $row['is_active'];
+                $row['emailVerified'] = (bool) $row['email_verified'];
                 $row['createdAt'] = (int) $row['created_at'];
-                unset($row['is_active'], $row['created_at']);
+                unset($row['is_active'], $row['email_verified'], $row['created_at']);
                 return $row;
             }, $statement->fetchAll())];
         }
@@ -1028,6 +1181,46 @@ function handleRequest(string $action, string $method, array $data): array
                 $db->prepare('DELETE FROM auth_tokens WHERE user_id = ?')->execute([$id]);
             }
             return ['message' => 'Cuenta actualizada.'];
+        }
+        if ($action === 'admin-users' && $method === 'DELETE') {
+            $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+            if (!$id || $id < 1) {
+                throw new ApiError(422, 'Selecciona una cuenta de cliente válida.');
+            }
+            $statement = $db->prepare("DELETE FROM users WHERE id = ? AND role = 'user'");
+            $statement->execute([$id]);
+            if ($statement->rowCount() === 0) {
+                throw new ApiError(404, 'No se encontró esa cuenta de cliente.');
+            }
+            return ['message' => 'Cuenta de cliente y sus datos eliminados.'];
+        }
+        if ($action === 'admin-resend-activation' && $method === 'POST') {
+            $id = filter_var($data['userId'] ?? null, FILTER_VALIDATE_INT);
+            if (!$id || $id < 1) {
+                throw new ApiError(422, 'Selecciona una cuenta de cliente válida.');
+            }
+            $statement = $db->prepare(
+                "SELECT email FROM users WHERE id = ? AND role = 'user' AND email_verified = 0"
+            );
+            $statement->execute([$id]);
+            $target = $statement->fetch();
+            if (!$target) {
+                throw new ApiError(409, 'La cuenta ya está activada o no existe.');
+            }
+            enforceRateLimit('admin-activation:' . $id, 3, 3600);
+            $existing = $db->prepare('SELECT last_sent_at FROM email_verifications WHERE user_id = ?');
+            $existing->execute([$id]);
+            $lastSentAt = $existing->fetchColumn();
+            if ($lastSentAt !== false && time() - (int) $lastSentAt < 60) {
+                throw new ApiError(429, 'Espera un minuto antes de reenviar el código.');
+            }
+            try {
+                saveEmailVerification($db, (int) $id, $target['email']);
+            } catch (Throwable $mailError) {
+                error_log('Finanza activation email error: ' . $mailError->getMessage());
+                throw new ApiError(503, 'No se pudo reenviar el correo de activación. Revisa la configuración SMTP.');
+            }
+            return ['message' => 'Correo de activación reenviado.'];
         }
 
         if ($action === 'admin-settings' && $method === 'GET') {
@@ -1373,6 +1566,10 @@ function handleRequest(string $action, string $method, array $data): array
 
     if ($action === 'me' && $method === 'GET') {
         return ['user' => publicUser($user)];
+    }
+    if ($action === 'complete-onboarding' && $method === 'POST') {
+        $db->prepare('UPDATE users SET onboarding_completed = 1 WHERE id = ?')->execute([$userId]);
+        return ['message' => 'Guía completada.'];
     }
     if ($action === 'logout' && $method === 'POST') {
         $db->prepare('DELETE FROM auth_tokens WHERE token_hash = ?')->execute([$user['token_hash']]);

@@ -32,6 +32,10 @@ const authTitle = document.getElementById('authTitle');
 const authIntro = document.getElementById('authIntro');
 const loginForm = document.getElementById('loginForm');
 const registerForm = document.getElementById('registerForm');
+const verifyEmailForm = document.getElementById('verifyEmailForm');
+const verificationEmail = document.getElementById('verificationEmail');
+const verificationCode = document.getElementById('verificationCode');
+const resendActivationButton = document.getElementById('resendActivationButton');
 const requestResetForm = document.getElementById('requestResetForm');
 const resetPasswordForm = document.getElementById('resetPasswordForm');
 const loginEmail = document.getElementById('loginEmail');
@@ -114,6 +118,13 @@ const adminSettingsForm = document.getElementById('adminSettingsForm');
 const subscriptionOptionForm = document.getElementById('subscriptionOptionForm');
 const subscriptionAssignmentForm = document.getElementById('subscriptionAssignmentForm');
 const mobileNav = document.querySelector('.mobile-nav');
+const onboardingDialog = document.getElementById('onboardingDialog');
+const onboardingStepLabel = document.getElementById('onboardingStepLabel');
+const onboardingDescription = document.getElementById('onboardingDescription');
+const onboardingStatus = document.getElementById('onboardingStatus');
+const previousOnboardingButton = document.getElementById('previousOnboardingButton');
+const nextOnboardingButton = document.getElementById('nextOnboardingButton');
+const skipOnboardingButton = document.getElementById('skipOnboardingButton');
 
 let transactions = [];
 let goals = [];
@@ -134,6 +145,15 @@ let aiVoiceRecognitionFailed = false;
 let aiVoiceCancelled = false;
 let aiAssistantAccess = { available: false, isMaster: false, requestStatus: null };
 let publicBrand = { appName: 'Finanza', logoUrl: '', faviconUrl: '' };
+let onboardingStep = 0;
+const onboardingSteps = [
+  'En el resumen verás tus ingresos, gastos, balance del mes y gráficos para entender cómo se mueve tu dinero.',
+  'En “Nuevo movimiento” registra ingresos o gastos. Elige categoría, monto, moneda y fecha; revisa los datos antes de guardar.',
+  'En “Movimientos” consulta tu historial, filtra por tipo, categoría o mes, y busca conceptos específicos.',
+  'En “Metas” define objetivos de ahorro, su monto y fecha. Finanza te ayuda a seguir el avance.',
+  'El registro inteligente puede completar un movimiento desde una foto o descripción. Revisa siempre los datos antes de guardar; la función Pro requiere activación.',
+  'También puedes descargar reportes y consultar el manual desde la parte superior. ¡Ya puedes empezar!'
+];
 
 initialize();
 
@@ -178,6 +198,8 @@ function initialize() {
   categoryForm.addEventListener('submit', handleCategorySubmit);
   loginForm.addEventListener('submit', handleLoginSubmit);
   registerForm.addEventListener('submit', handleRegisterSubmit);
+  verifyEmailForm.addEventListener('submit', handleVerifyEmailSubmit);
+  resendActivationButton.addEventListener('click', handleResendActivation);
   requestResetForm.addEventListener('submit', handleRequestResetSubmit);
   resetPasswordForm.addEventListener('submit', handleResetPasswordSubmit);
   showRecoveryButton.addEventListener('click', () => {
@@ -204,6 +226,22 @@ function initialize() {
   adminSettingsForm.addEventListener('submit', handleAdminSettingsSubmit);
   subscriptionOptionForm.addEventListener('submit', handleSubscriptionOptionSubmit);
   subscriptionAssignmentForm.addEventListener('submit', handleSubscriptionAssignmentSubmit);
+  previousOnboardingButton.addEventListener('click', () => {
+    if (onboardingStep > 0) {
+      onboardingStep -= 1;
+      renderOnboardingStep();
+    }
+  });
+  nextOnboardingButton.addEventListener('click', () => {
+    if (onboardingStep < onboardingSteps.length - 1) {
+      onboardingStep += 1;
+      renderOnboardingStep();
+    } else {
+      finishOnboarding();
+    }
+  });
+  skipOnboardingButton.addEventListener('click', finishOnboarding);
+  onboardingDialog.addEventListener('cancel', (event) => event.preventDefault());
   adminPanelButton.addEventListener('click', openAdminPanel);
   closeAdminButton.addEventListener('click', closeAdminPanel);
   document.querySelectorAll('.upload-button').forEach((button) => {
@@ -379,6 +417,7 @@ async function restoreSession() {
     currentUser = result.user;
     await loadAccountData();
     showApp();
+    maybeStartOnboarding();
   } catch (error) {
     clearAuthSession();
     showAuthMessage(`No pudimos restaurar tu sesión. ${error.message}`);
@@ -431,6 +470,7 @@ function showApp() {
 function clearAuthSession() {
   authToken = '';
   currentUser = null;
+  if (onboardingDialog.open) onboardingDialog.close();
   localStorage.removeItem(AUTH_TOKEN_KEY);
   appShell.hidden = true;
   authScreen.hidden = false;
@@ -442,6 +482,7 @@ function showAuthView(view, message = '') {
     login: loginForm,
     setupMaster: setupMasterForm,
     register: registerForm,
+    verifyEmail: verifyEmailForm,
     requestReset: requestResetForm,
     resetPassword: resetPasswordForm
   };
@@ -449,6 +490,7 @@ function showAuthView(view, message = '') {
     login: ['Qué gusto verte.', 'Inicia sesión para consultar tus movimientos desde cualquier dispositivo.'],
     setupMaster: ['Configura el acceso maestro.', 'Usa el código único definido en la configuración privada del servidor.'],
     register: ['Empieza con claridad.', 'Crea tu cuenta para mantener tus movimientos y metas sincronizados.'],
+    verifyEmail: ['Confirma tu correo.', 'Ingresa el código de 8 dígitos que enviamos a tu correo para activar tu cuenta.'],
     requestReset: ['Recuperemos el acceso.', 'Te enviaremos un código de un solo uso a tu correo.'],
     resetPassword: ['Crea una nueva clave.', 'El código enviado a tu correo caduca en 15 minutos.']
   };
@@ -504,16 +546,54 @@ async function handleLoginSubmit(event) {
 async function handleRegisterSubmit(event) {
   event.preventDefault();
   await submitAuthForm(registerForm, async () => {
-    const result = await apiRequest('register', {
-      method: 'POST',
-      body: {
-        name: registerName.value.trim(),
-        email: registerEmail.value.trim(),
-        password: registerPassword.value
+    const email = registerEmail.value.trim();
+    verificationEmail.value = email;
+    verificationCode.value = '';
+    try {
+      const result = await apiRequest('register', {
+        method: 'POST',
+        body: {
+          name: registerName.value.trim(),
+          email,
+          password: registerPassword.value
+        }
+      });
+      showAuthView('verifyEmail', result.message);
+    } catch (error) {
+      if (error.message.startsWith('La cuenta se creó, pero no se pudo enviar el código.')) {
+        showAuthView('verifyEmail', error.message);
+        showAuthMessage(error.message, true);
+        return;
       }
+      throw error;
+    }
+  });
+}
+
+async function handleVerifyEmailSubmit(event) {
+  event.preventDefault();
+  await submitAuthForm(verifyEmailForm, async () => {
+    const result = await apiRequest('verify-email', {
+      method: 'POST',
+      body: { email: verificationEmail.value.trim(), code: verificationCode.value.trim() }
     });
     await completeAuthentication(result);
   });
+}
+
+async function handleResendActivation() {
+  resendActivationButton.disabled = true;
+  try {
+    const result = await apiRequest('resend-activation', {
+      method: 'POST',
+      body: { email: verificationEmail.value.trim() }
+    });
+    showAuthMessage(result.message);
+  } catch (error) {
+    showAuthMessage(error.message, true);
+  } finally {
+    resendActivationButton.disabled = false;
+  }
 }
 
 async function handleBootstrapSubmit(event) {
@@ -631,31 +711,81 @@ function renderAdminUsers(users) {
   }
   container.innerHTML = users.map((user) => `
     <form class="admin-record admin-user-record" data-user-id="${user.id}">
-      <label>Nombre<input name="name" maxlength="80" value="${escapeHtml(user.name)}" required /></label>
-      <label>Correo<input name="email" type="email" maxlength="254" value="${escapeHtml(user.email)}" required /></label>
-      <label>Nueva contraseña<input name="password" type="password" minlength="12" autocomplete="new-password" placeholder="Dejar vacía para conservar" /></label>
-      <label class="admin-check"><input name="isActive" type="checkbox" ${user.isActive ? 'checked' : ''} /> Cuenta activa</label>
-      <button class="button button-quiet" type="submit">Guardar</button>
+      <label>Nombre<input name="name" maxlength="80" value="${escapeHtml(user.name)}" required disabled /></label>
+      <label>Correo<input name="email" type="email" maxlength="254" value="${escapeHtml(user.email)}" required disabled /></label>
+      <label>Nueva contraseña<input name="password" type="password" minlength="12" autocomplete="new-password" placeholder="Dejar vacía para conservar" disabled /></label>
+      <label class="admin-check"><input name="isActive" type="checkbox" ${user.isActive ? 'checked' : ''} disabled /> Cuenta activa</label>
+      <p class="admin-user-status ${user.emailVerified ? 'verified' : 'unverified'}">${user.emailVerified ? 'Correo activado' : 'Correo pendiente de activación'}</p>
+      <div class="admin-user-actions">
+        <button class="button button-quiet user-edit-button" type="button">Editar</button>
+        <button class="button button-quiet user-save-button" type="submit" disabled>Guardar</button>
+        ${user.emailVerified ? '' : '<button class="button button-quiet user-resend-button" type="button">Reenviar activación</button>'}
+        <button class="button button-delete user-delete-button" type="button">Eliminar</button>
+      </div>
     </form>
   `).join('');
   container.querySelectorAll('.admin-user-record').forEach((record) => {
+    const fields = [...record.querySelectorAll('input')];
+    const editButton = record.querySelector('.user-edit-button');
+    const saveButton = record.querySelector('.user-save-button');
+    editButton.addEventListener('click', () => {
+      fields.forEach((field) => { field.disabled = false; });
+      editButton.hidden = true;
+      saveButton.disabled = false;
+      record.querySelector('[name="name"]').focus();
+    });
     record.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const button = record.querySelector('button[type="submit"]');
-      const fields = new FormData(record);
-      button.disabled = true;
+      const submit = record.querySelector('button[type="submit"]');
+      const values = new FormData(record);
+      submit.disabled = true;
       try {
         await apiRequest('admin-users', {
           method: 'PUT',
           body: {
             id: record.dataset.userId,
-            name: fields.get('name'),
-            email: fields.get('email'),
-            password: fields.get('password'),
-            isActive: fields.get('isActive') === 'on'
+            name: values.get('name'),
+            email: values.get('email'),
+            password: values.get('password'),
+            isActive: values.get('isActive') === 'on'
           }
         });
         showAppNotice('Cuenta actualizada.');
+        await loadAdminData();
+      } catch (error) {
+        showAppNotice(error.message, true);
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    record.querySelector('.user-resend-button')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const result = await apiRequest('admin-resend-activation', {
+          method: 'POST',
+          body: { userId: record.dataset.userId }
+        });
+        showAppNotice(result.message);
+      } catch (error) {
+        showAppNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    record.querySelector('.user-delete-button').addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      const name = record.querySelector('[name="name"]').value;
+      if (!window.confirm(`¿Eliminar la cuenta de ${name}? También se borrarán permanentemente sus movimientos, metas y demás datos asociados.`)) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        const result = await apiRequest('admin-users', {
+          method: 'DELETE',
+          body: { id: record.dataset.userId }
+        });
+        showAppNotice(result.message);
         await loadAdminData();
       } catch (error) {
         showAppNotice(error.message, true);
@@ -987,6 +1117,7 @@ async function completeAuthentication(result) {
   try {
     await loadAccountData();
     showApp();
+    maybeStartOnboarding();
   } catch (error) {
     clearAuthSession();
     throw error;
@@ -1380,7 +1511,7 @@ async function submitTransaction() {
 }
 
 function openAiAssistant() {
-  aiAssistantStatus.textContent = 'La foto o transcripción se enviará a Gemini para analizarla; no se guardará como archivo.';
+  aiAssistantStatus.textContent = 'La foto o transcripción se enviará al servicio de IA para analizarla; no se guardará como archivo.';
   aiAssistantStatus.classList.remove('error');
   aiAssistantTitle.textContent = aiAssistantAccess.isMaster
     ? 'Registro inteligente'
@@ -1407,6 +1538,39 @@ function openAiAssistant() {
     aiReceiptPreviewUrl = '';
   }
   aiAssistantDialog.showModal();
+}
+
+function maybeStartOnboarding() {
+  if (!currentUser || currentUser.onboardingCompleted !== false || onboardingDialog.open) return;
+  onboardingStep = 0;
+  onboardingStatus.hidden = true;
+  onboardingStatus.classList.remove('error');
+  renderOnboardingStep();
+  onboardingDialog.showModal();
+}
+
+function renderOnboardingStep() {
+  onboardingStepLabel.textContent = `GUÍA INICIAL · ${onboardingStep + 1} DE ${onboardingSteps.length}`;
+  onboardingDescription.textContent = onboardingSteps[onboardingStep];
+  previousOnboardingButton.disabled = onboardingStep === 0;
+  nextOnboardingButton.textContent = onboardingStep === onboardingSteps.length - 1 ? 'Terminar' : 'Siguiente';
+}
+
+async function finishOnboarding() {
+  const buttons = [skipOnboardingButton, previousOnboardingButton, nextOnboardingButton];
+  buttons.forEach((button) => { button.disabled = true; });
+  onboardingStatus.hidden = true;
+  try {
+    await apiRequest('complete-onboarding', { method: 'POST', body: {} });
+    currentUser.onboardingCompleted = true;
+    onboardingDialog.close();
+  } catch (error) {
+    onboardingStatus.textContent = error.message;
+    onboardingStatus.classList.add('error');
+    onboardingStatus.hidden = false;
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+  }
 }
 
 async function requestAiSubscription() {
