@@ -308,6 +308,30 @@ function enforceRateLimit(string $key, int $limit, int $windowSeconds): void
     $update->execute([$key]);
 }
 
+function activationResendCooldownRemaining(string $key): int
+{
+    $statement = database()->prepare('SELECT attempts, window_started_at FROM rate_limits WHERE limiter_key = ?');
+    $statement->execute([$key]);
+    $row = $statement->fetch();
+    if (!$row) {
+        return 0;
+    }
+
+    $cooldowns = [300, 600, 1800, 3600, 18000];
+    $cooldown = $cooldowns[min(max(0, (int) $row['attempts'] - 1), count($cooldowns) - 1)];
+    return max(0, $cooldown - (time() - (int) $row['window_started_at']));
+}
+
+function recordActivationResend(string $key): void
+{
+    $statement = database()->prepare(
+        'INSERT INTO rate_limits (limiter_key, attempts, window_started_at) VALUES (?, 1, ?)
+         ON CONFLICT(limiter_key) DO UPDATE SET attempts = rate_limits.attempts + 1,
+         window_started_at = excluded.window_started_at'
+    );
+    $statement->execute([$key, time()]);
+}
+
 function issueToken(int $userId): string
 {
     $token = bin2hex(random_bytes(32));
@@ -924,6 +948,8 @@ function handleRequest(string $action, string $method, array $data): array
                 ->execute([(int) $verification['id']]);
             $db->prepare('DELETE FROM email_verifications WHERE user_id = ?')
                 ->execute([(int) $verification['id']]);
+            $db->prepare('DELETE FROM rate_limits WHERE limiter_key = ?')
+                ->execute(['admin-activation-backoff:' . (int) $verification['id']]);
             $db->commit();
         } catch (Throwable $error) {
             $db->rollBack();
@@ -1207,12 +1233,17 @@ function handleRequest(string $action, string $method, array $data): array
             if (!$target) {
                 throw new ApiError(409, 'La cuenta ya está activada o no existe.');
             }
-            enforceRateLimit('admin-activation:' . $id, 3, 3600);
-            $existing = $db->prepare('SELECT last_sent_at FROM email_verifications WHERE user_id = ?');
-            $existing->execute([$id]);
-            $lastSentAt = $existing->fetchColumn();
-            if ($lastSentAt !== false && time() - (int) $lastSentAt < 60) {
-                throw new ApiError(429, 'Espera un minuto antes de reenviar el código.');
+            $limiterKey = 'admin-activation-backoff:' . $id;
+            $cooldownRemaining = activationResendCooldownRemaining($limiterKey);
+            if ($cooldownRemaining > 0) {
+                $waitMinutes = (int) ceil($cooldownRemaining / 60);
+                $hours = intdiv($waitMinutes, 60);
+                $minutes = $waitMinutes % 60;
+                $wait = $hours > 0
+                    ? $hours . ' ' . ($hours === 1 ? 'hora' : 'horas') .
+                        ($minutes > 0 ? ' y ' . $minutes . ' ' . ($minutes === 1 ? 'minuto' : 'minutos') : '')
+                    : $waitMinutes . ' ' . ($waitMinutes === 1 ? 'minuto' : 'minutos');
+                throw new ApiError(429, 'Espera ' . $wait . ' antes de reenviar el código.');
             }
             try {
                 saveEmailVerification($db, (int) $id, $target['email']);
@@ -1220,6 +1251,7 @@ function handleRequest(string $action, string $method, array $data): array
                 error_log('Finanza activation email error: ' . $mailError->getMessage());
                 throw new ApiError(503, 'No se pudo reenviar el correo de activación. Revisa la configuración SMTP.');
             }
+            recordActivationResend($limiterKey);
             return ['message' => 'Correo de activación reenviado.'];
         }
 
