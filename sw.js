@@ -1,7 +1,8 @@
-const CACHE_NAME = 'finanza-cache-v13';
+const CACHE_NAME = 'finanza-cache-v16';
 const APP_SHELL = [
   './',
   './index.html',
+  './terminos.html',
   './styles.css',
   './app.bundle.js',
   './manifest.webmanifest',

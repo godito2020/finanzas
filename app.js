@@ -2,6 +2,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
 const AUTH_TOKEN_KEY = 'finanza-auth-token-v1';
+const TERMS_VERSION = '1.0-2026-10-27';
 const SUGGESTED_CATEGORIES = [
   'Alimentación',
   'Vivienda',
@@ -58,6 +59,24 @@ const incomeValue = document.getElementById('incomeValue');
 const expenseValue = document.getElementById('expenseValue');
 const savedValue = document.getElementById('savedValue');
 const monthLabel = document.getElementById('monthLabel');
+const paymentForm = document.getElementById('paymentForm');
+const paymentNameInput = document.getElementById('paymentNameInput');
+const paymentCategoryInput = document.getElementById('paymentCategoryInput');
+const paymentAmountInput = document.getElementById('paymentAmountInput');
+const paymentCurrencyInput = document.getElementById('paymentCurrencyInput');
+const paymentExchangeRateField = document.getElementById('paymentExchangeRateField');
+const paymentExchangeRateInput = document.getElementById('paymentExchangeRateInput');
+const paymentExchangeRateHint = document.getElementById('paymentExchangeRateHint');
+const paymentDueDateInput = document.getElementById('paymentDueDateInput');
+const paymentRecurrenceInput = document.getElementById('paymentRecurrenceInput');
+const paymentReminderTimeInput = document.getElementById('paymentReminderTimeInput');
+const paymentCalendar = document.getElementById('paymentCalendar');
+const paymentMonthLabel = document.getElementById('paymentMonthLabel');
+const selectedPaymentDateLabel = document.getElementById('selectedPaymentDateLabel');
+const paymentsList = document.getElementById('paymentsList');
+const upcomingPaymentsList = document.getElementById('upcomingPaymentsList');
+const previousPaymentMonth = document.getElementById('previousPaymentMonth');
+const nextPaymentMonth = document.getElementById('nextPaymentMonth');
 const descriptionInput = document.getElementById('descriptionInput');
 const categoryInput = document.getElementById('categoryInput');
 const categoryForm = document.getElementById('categoryForm');
@@ -119,6 +138,34 @@ const adminSettingsForm = document.getElementById('adminSettingsForm');
 const subscriptionOptionForm = document.getElementById('subscriptionOptionForm');
 const subscriptionAssignmentForm = document.getElementById('subscriptionAssignmentForm');
 const mobileNav = document.querySelector('.mobile-nav');
+const budgetForm = document.getElementById('budgetForm');
+const budgetCategoryInput = document.getElementById('budgetCategoryInput');
+const budgetAmountInput = document.getElementById('budgetAmountInput');
+const dashboardDateRange = document.getElementById('dashboardDateRange');
+const dashboardStartDate = document.getElementById('dashboardStartDate');
+const dashboardEndDate = document.getElementById('dashboardEndDate');
+const dashboardPeriodLabel = document.getElementById('dashboardPeriodLabel');
+const dashboardPendingList = document.getElementById('dashboardPendingList');
+const dashboardRecentList = document.getElementById('dashboardRecentList');
+const debtsList = document.getElementById('debtsList');
+const debtPaymentsList = document.getElementById('debtPaymentsList');
+const debtForm = document.getElementById('debtForm');
+const debtNameInput = document.getElementById('debtNameInput');
+const debtLenderInput = document.getElementById('debtLenderInput');
+const debtAmountInput = document.getElementById('debtAmountInput');
+const debtCurrencyInput = document.getElementById('debtCurrencyInput');
+const debtExchangeRateField = document.getElementById('debtExchangeRateField');
+const debtExchangeRateInput = document.getElementById('debtExchangeRateInput');
+const debtExchangeRateHint = document.getElementById('debtExchangeRateHint');
+const emergencyFundForm = document.getElementById('emergencyFundForm');
+const emergencyTargetInput = document.getElementById('emergencyTargetInput');
+const emergencyCurrentInput = document.getElementById('emergencyCurrentInput');
+const planPaymentForm = document.getElementById('planPaymentForm');
+const planPaymentMethodInput = document.getElementById('planPaymentMethodInput');
+const selectedPlanPeriod = document.getElementById('selectedPlanPeriod');
+const planPaymentInstructions = document.getElementById('planPaymentInstructions');
+const planPaymentReferenceInput = document.getElementById('planPaymentReferenceInput');
+const cancelPlanRequestButton = document.getElementById('cancelPlanRequestButton');
 const onboardingDialog = document.getElementById('onboardingDialog');
 const onboardingSpotlight = document.getElementById('onboardingSpotlight');
 const onboardingStepLabel = document.getElementById('onboardingStepLabel');
@@ -132,6 +179,19 @@ const skipOnboardingButton = document.getElementById('skipOnboardingButton');
 let transactions = [];
 let goals = [];
 let categories = [];
+let paymentSchedules = [];
+let debts = [];
+let debtPayments = [];
+let budgets = [];
+let emergencyFund = null;
+let dashboardPeriod = 'month';
+let subscriptionPlans = [];
+let paymentInstructions = {};
+let currentSubscription = null;
+let hasPendingPlanRequest = false;
+let featureAccess = { payments: false, debts: false, alerts: false, budgets: false, reports: false };
+let paymentCalendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let selectedPaymentDate = getDateString(0);
 let editingTransactionId = null;
 let appBaseCurrency = 'PEN';
 let formBaseCurrency = 'PEN';
@@ -181,6 +241,11 @@ const onboardingSteps = [
     target: '#transactions'
   },
   {
+    title: 'No pierdas de vista tus pagos',
+    description: 'Programa servicios, tarjetas o alquiler para ver sus vencimientos en el calendario. Te avisaremos por correo; al marcar un pago como realizado, Finanza lo registra también como gasto.',
+    target: '#payments'
+  },
+  {
     title: 'Herramientas para continuar',
     description: 'Descarga un reporte PDF para guardar tus movimientos, consulta el manual cuando necesites más detalle y envía sugerencias. Puedes volver a recorrer esta guía con el botón “Ver guía”.',
     target: '.topbar-actions'
@@ -189,12 +254,58 @@ const onboardingSteps = [
 
 initialize();
 
+function setActiveMobileNav(activeLink) {
+  mobileNav.querySelectorAll('a').forEach((link) => {
+    const isActive = link === activeLink;
+    link.classList.toggle('active', isActive);
+    if (isActive) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+}
+
 function initialize() {
+  setActiveMobileNav(mobileNav.querySelector('a[href="#overview"]'));
   dateInput.value = getDateString(0);
   goalDateInput.value = getDateString(90);
+  paymentDueDateInput.value = getDateString(1);
+  dashboardStartDate.value = getDateString(0);
+  dashboardEndDate.value = getDateString(0);
+  setDefaultAssignmentDates();
   formBaseCurrency = appBaseCurrency;
   updateExchangeRateField();
+  updateDebtExchangeRateField();
   form.addEventListener('submit', handleSubmit);
+  paymentForm.addEventListener('submit', handlePaymentSubmit);
+  paymentCurrencyInput.addEventListener('change', updatePaymentExchangeRateField);
+  previousPaymentMonth.addEventListener('click', () => changePaymentCalendarMonth(-1));
+  nextPaymentMonth.addEventListener('click', () => changePaymentCalendarMonth(1));
+  paymentCalendar.addEventListener('click', handlePaymentCalendarClick);
+  paymentsList.addEventListener('click', handlePaymentListClick);
+  upcomingPaymentsList.addEventListener('click', handlePaymentListClick);
+  budgetForm.addEventListener('submit', handleBudgetSubmit);
+  budgetList.addEventListener('click', handleBudgetListClick);
+  debtForm.addEventListener('submit', handleDebtSubmit);
+  debtsList.addEventListener('submit', handleDebtPaymentSubmit);
+  debtsList.addEventListener('click', handleDebtListClick);
+  emergencyFundForm.addEventListener('submit', handleEmergencyFundSubmit);
+  planPaymentForm.addEventListener('submit', handlePlanPaymentSubmit);
+  planPaymentMethodInput.addEventListener('change', renderPlanPaymentInstructions);
+  cancelPlanRequestButton.addEventListener('click', () => { planPaymentForm.hidden = true; });
+  document.getElementById('planCards').addEventListener('click', handlePlanCardClick);
+  debtCurrencyInput.addEventListener('change', updateDebtExchangeRateField);
+  document.querySelectorAll('[data-period]').forEach((button) => {
+    button.addEventListener('click', () => setDashboardPeriod(button.dataset.period));
+  });
+  mobileNav.addEventListener('click', (event) => {
+    const link = event.target.closest('a[href^="#"]');
+    if (link) setActiveMobileNav(link);
+  });
+  window.addEventListener('hashchange', () => {
+    const link = mobileNav.querySelector(`a[href="#${window.location.hash.slice(1)}"]`);
+    setActiveMobileNav(link || mobileNav.querySelector('a[href="#overview"]'));
+  });
+  dashboardStartDate.addEventListener('change', render);
+  dashboardEndDate.addEventListener('change', render);
   currencyInput.addEventListener('change', () => {
     if (currencyInput.value !== formBaseCurrency && exchangeRateInput.value === '1') {
       exchangeRateInput.value = '';
@@ -465,16 +576,33 @@ async function restoreSession() {
 }
 
 async function loadAccountData() {
-  const [transactionResult, goalResult, categoryResult, aiStatus, publicSettings] = await Promise.all([
+  const [transactionResult, goalResult, categoryResult, aiStatus, publicSettings, paymentResult,
+    debtResult, budgetResult, emergencyResult, planResult, planStatus] = await Promise.all([
     apiRequest('transactions'),
     apiRequest('goals'),
     apiRequest('categories'),
     apiRequest('ai-assistant-status'),
-    apiRequest('public-settings')
+    apiRequest('public-settings'),
+    apiRequest('payments'),
+    apiRequest('debts'),
+    apiRequest('budgets'),
+    apiRequest('emergency-fund'),
+    apiRequest('plans'),
+    apiRequest('plan-status')
   ]);
   transactions = transactionResult.transactions;
   goals = goalResult.goals;
   categories = categoryResult.categories;
+  paymentSchedules = paymentResult.payments;
+  debts = debtResult.debts;
+  debtPayments = debtResult.payments;
+  budgets = budgetResult.budgets;
+  emergencyFund = emergencyResult.fund;
+  subscriptionPlans = planResult.plans;
+  paymentInstructions = planResult.paymentInstructions;
+  currentSubscription = planStatus.subscription;
+  hasPendingPlanRequest = planStatus.hasPendingRequest;
+  featureAccess = planStatus.featureAccess || featureAccess;
   aiAssistantAccess = aiStatus;
   applyBaseCurrency(publicSettings.settings.baseCurrency);
   openAiAssistantButton.hidden = false;
@@ -595,7 +723,9 @@ async function handleRegisterSubmit(event) {
         body: {
           name: registerName.value.trim(),
           email,
-          password: registerPassword.value
+          password: registerPassword.value,
+          termsAccepted: document.getElementById('registerTerms').checked,
+          termsVersion: TERMS_VERSION
         }
       });
       showAuthView('verifyEmail', result.message);
@@ -695,11 +825,12 @@ function closeAdminPanel() {
 }
 
 async function loadAdminData() {
-  const [usersResult, settingsResult, suggestionsResult, subscriptionsResult] = await Promise.all([
+  const [usersResult, settingsResult, suggestionsResult, subscriptionsResult, planRequestsResult] = await Promise.all([
     apiRequest('admin-users'),
     apiRequest('admin-settings'),
     apiRequest('admin-suggestions'),
-    apiRequest('admin-subscriptions')
+    apiRequest('admin-subscriptions'),
+    apiRequest('admin-plan-requests')
   ]);
   adminUsers = usersResult.users;
   subscriptionOptions = subscriptionsResult.options;
@@ -707,6 +838,7 @@ async function loadAdminData() {
   renderAdminUsers(adminUsers);
   renderAdminSuggestions(suggestionsResult.suggestions);
   renderSubscriptionData(subscriptionsResult);
+  renderPlanPaymentRequests(planRequestsResult.requests);
   fillAdminSettings(settingsResult.settings);
 }
 
@@ -741,6 +873,20 @@ function fillAdminSettings(settings) {
     : 'Sin configurar';
   document.getElementById('mailFromInput').value = settings.mailFrom || '';
   document.getElementById('mailFromNameInput').value = settings.mailFromName || '';
+  document.getElementById('yapeNumberInput').value = settings.yapeNumber || '';
+  document.getElementById('yapeNameInput').value = settings.yapeName || '';
+  document.getElementById('bankAccountsInput').value = settings.bankAccounts || '';
+  document.getElementById('culqiPublicKeyInput').value = settings.culqiPublicKey || '';
+  document.getElementById('culqiSecretInput').value = '';
+  document.getElementById('culqiSecretInput').placeholder = settings.culqiSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
+  document.getElementById('mercadoPagoPublicKeyInput').value = settings.mercadoPagoPublicKey || '';
+  document.getElementById('mercadoPagoSecretInput').value = '';
+  document.getElementById('mercadoPagoSecretInput').placeholder = settings.mercadoPagoSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
+  document.getElementById('paypalClientIdInput').value = settings.paypalClientId || '';
+  document.getElementById('paypalSecretInput').value = '';
+  document.getElementById('paypalSecretInput').placeholder = settings.paypalSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
+  document.getElementById('gatewayStatus').textContent =
+    `Culqi ${settings.culqiSecretSet ? 'configurado' : 'sin configurar'} · Mercado Pago ${settings.mercadoPagoSecretSet ? 'configurado' : 'sin configurar'} · PayPal ${settings.paypalSecretSet ? 'configurado' : 'sin configurar'}. Checkout automático pendiente de integración.`;
 }
 
 function renderAdminUsers(users) {
@@ -877,6 +1023,15 @@ async function handleAdminSettingsSubmit(event) {
         smtpPassword: document.getElementById('smtpPasswordInput').value,
         geminiApiKey: document.getElementById('geminiApiKeyInput').value.trim(),
         groqApiKey: document.getElementById('groqApiKeyInput').value.trim(),
+        yapeNumber: document.getElementById('yapeNumberInput').value.trim(),
+        yapeName: document.getElementById('yapeNameInput').value.trim(),
+        bankAccounts: document.getElementById('bankAccountsInput').value.trim(),
+        culqiPublicKey: document.getElementById('culqiPublicKeyInput').value.trim(),
+        culqiSecret: document.getElementById('culqiSecretInput').value.trim(),
+        mercadoPagoPublicKey: document.getElementById('mercadoPagoPublicKeyInput').value.trim(),
+        mercadoPagoSecret: document.getElementById('mercadoPagoSecretInput').value.trim(),
+        paypalClientId: document.getElementById('paypalClientIdInput').value.trim(),
+        paypalSecret: document.getElementById('paypalSecretInput').value.trim(),
         aiProvider: document.getElementById('aiProviderInput').value,
         mailFrom: document.getElementById('mailFromInput').value.trim(),
         mailFromName: document.getElementById('mailFromNameInput').value.trim()
@@ -887,6 +1042,9 @@ async function handleAdminSettingsSubmit(event) {
     document.getElementById('smtpPasswordInput').value = '';
     document.getElementById('geminiApiKeyInput').value = '';
     document.getElementById('groqApiKeyInput').value = '';
+    document.getElementById('culqiSecretInput').value = '';
+    document.getElementById('mercadoPagoSecretInput').value = '';
+    document.getElementById('paypalSecretInput').value = '';
     showAppNotice('Configuración guardada.');
     await loadAdminData();
   } catch (error) {
@@ -1053,7 +1211,7 @@ function renderSubscriptionData(data) {
   }
   assignmentsList.innerHTML = data.assignments.map((item) => `
     <div class="admin-record assignment-record" data-assignment-id="${item.id}">
-      <div><strong>${escapeHtml(item.userName)} · ${escapeHtml(item.email)}</strong><small>${escapeHtml(item.optionName)} · Inicio: ${escapeHtml(item.startsAt)}</small></div>
+      <div><strong>${escapeHtml(item.userName)} · ${escapeHtml(item.email)}</strong><small>${escapeHtml(item.optionName)}${item.isTrial ? ' · Prueba gratis' : ''} · Inicio: ${escapeHtml(item.startsAt)} · Fin: ${escapeHtml(item.endsAt || 'Sin fecha')}</small></div>
       <label>Estado<select class="assignment-status">
         <option value="active" ${item.status === 'active' ? 'selected' : ''}>Activa</option>
         <option value="paused" ${item.status === 'paused' ? 'selected' : ''}>Pausada</option>
@@ -1103,6 +1261,46 @@ function renderSubscriptionData(data) {
   });
 }
 
+function renderPlanPaymentRequests(requests) {
+  const container = document.getElementById('planPaymentRequestsList');
+  if (!requests.length) {
+    container.innerHTML = '<p class="empty-state">No hay solicitudes de planes.</p>';
+    return;
+  }
+  const labels = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada' };
+  container.innerHTML = requests.map((request) => `
+    <article class="admin-record plan-request-record" data-plan-request-id="${request.id}">
+      <div>
+        <strong>${escapeHtml(request.name)} · ${escapeHtml(request.email)}</strong>
+        <small>${escapeHtml(request.planName)} · ${formatCurrency(request.priceAmount, 'PEN')} · ${request.paymentMethod === 'yape' ? 'Yape' : 'Transferencia'}</small>
+        <small>Referencia: ${escapeHtml(request.paymentReference)} · ${new Date(request.requestedAt * 1000).toLocaleString('es-PE')}</small>
+        <small>Estado: ${labels[request.status] || request.status}</small>
+      </div>
+      ${request.status === 'pending' ? '<button class="button button-primary plan-request-approve" type="button">Confirmar pago</button><button class="button button-reset plan-request-reject" type="button">Rechazar</button>' : ''}
+    </article>
+  `).join('');
+  container.querySelectorAll('.plan-request-approve, .plan-request-reject').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const record = button.closest('.plan-request-record');
+      const decision = button.classList.contains('plan-request-approve') ? 'approved' : 'rejected';
+      if (decision === 'approved' && !window.confirm('Confirma que recibiste el pago y activa el plan del usuario.')) return;
+      button.disabled = true;
+      try {
+        const result = await apiRequest('admin-plan-requests', {
+          method: 'PUT',
+          body: { id: record.dataset.planRequestId, decision }
+        });
+        showAppNotice(result.message);
+        await loadAdminData();
+      } catch (error) {
+        showAppNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
 async function handleSubscriptionOptionSubmit(event) {
   event.preventDefault();
   const button = subscriptionOptionForm.querySelector('button[type="submit"]');
@@ -1141,6 +1339,7 @@ async function handleSubscriptionAssignmentSubmit(event) {
       }
     });
     subscriptionAssignmentForm.reset();
+    setDefaultAssignmentDates();
     showAppNotice('Suscripción asignada.');
     await loadAdminData();
   } catch (error) {
@@ -1148,6 +1347,13 @@ async function handleSubscriptionAssignmentSubmit(event) {
   } finally {
     button.disabled = false;
   }
+}
+
+function setDefaultAssignmentDates() {
+  const start = document.getElementById('assignmentStartInput');
+  const end = document.getElementById('assignmentEndInput');
+  start.value = getDateString(0);
+  end.value = getDateString(30);
 }
 
 async function completeAuthentication(result) {
@@ -1250,6 +1456,10 @@ function updateInstallButtonVisibility() {
 }
 
 async function handleReportClick() {
+  if (!featureAccess.reports) {
+    showAppNotice('La descarga de reportes está disponible en los planes Mensual y Anual. Revisa Plan y suscripción.', true);
+    return;
+  }
   try {
     reportButton.disabled = true;
     reportButton.textContent = 'Preparando PDF…';
@@ -1880,21 +2090,626 @@ async function submitGoal() {
   }
 }
 
-function render() {
-  const currentMonth = new Date().toLocaleString('es-ES', { month: 'long', year: 'numeric' });
-  monthLabel.textContent = currentMonth.charAt(0).toUpperCase() + currentMonth.slice(1);
+async function handlePaymentSubmit(event) {
+  event.preventDefault();
+  const title = paymentNameInput.value.trim();
+  const category = paymentCategoryInput.value;
+  const amount = Number(paymentAmountInput.value);
+  const currency = paymentCurrencyInput.value;
+  const exchangeRate = currency === appBaseCurrency ? 1 : Number(paymentExchangeRateInput.value);
+  const dueDate = paymentDueDateInput.value;
+  const reminderTime = paymentReminderTimeInput.value;
+  if (!title || !category || !dueDate || !reminderTime || !Number.isFinite(amount) || amount <= 0 ||
+      !Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+    showAppNotice('Revisa el monto, la fecha y el tipo de cambio del pago.', true);
+    return;
+  }
 
-  const summary = summarizeTransactions();
+  const submitButton = paymentForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    const result = await apiRequest('payments', {
+      method: 'POST',
+      body: {
+        title,
+        category,
+        amount,
+        currency,
+        exchangeRate,
+        dueDate,
+        recurrence: paymentRecurrenceInput.value,
+        reminderTime,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+      }
+    });
+    paymentSchedules.push(result.payment);
+    paymentSchedules.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const [year, month, day] = dueDate.split('-').map(Number);
+    paymentCalendarMonth = new Date(year, month - 1, 1);
+    selectedPaymentDate = dueDate;
+    paymentForm.reset();
+    paymentDueDateInput.value = getDateString(1);
+    paymentCurrencyInput.value = appBaseCurrency;
+    updatePaymentExchangeRateField();
+    renderPaymentCalendar();
+    paymentForm.hidden = !featureAccess.payments;
+    document.getElementById('paymentsUpgradeNotice').hidden = featureAccess.payments;
+    document.getElementById('dailyAlertNote').hidden = !featureAccess.alerts;
+    showAppNotice('Recordatorio de pago guardado.');
+  } catch (error) {
+    showAppNotice(error.message, true);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+function updatePaymentExchangeRateField() {
+  const needsExchangeRate = paymentCurrencyInput.value !== appBaseCurrency;
+  paymentExchangeRateField.hidden = !needsExchangeRate;
+  paymentExchangeRateInput.required = needsExchangeRate;
+  paymentExchangeRateHint.textContent = `${appBaseCurrency} por cada unidad de ${paymentCurrencyInput.value}`;
+  if (!needsExchangeRate) {
+    paymentExchangeRateInput.value = '';
+  }
+}
+
+function updateDebtExchangeRateField() {
+  const needsExchangeRate = debtCurrencyInput.value !== appBaseCurrency;
+  debtExchangeRateField.hidden = !needsExchangeRate;
+  debtExchangeRateInput.required = needsExchangeRate;
+  debtExchangeRateHint.textContent = `${appBaseCurrency} por cada unidad de ${debtCurrencyInput.value}`;
+  if (!needsExchangeRate) debtExchangeRateInput.value = '';
+}
+
+async function handleDebtSubmit(event) {
+  event.preventDefault();
+  const currency = debtCurrencyInput.value;
+  const exchangeRate = currency === appBaseCurrency ? 1 : Number(debtExchangeRateInput.value);
+  if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+    showAppNotice('Ingresa un tipo de cambio válido para esta deuda.', true);
+    return;
+  }
+  const button = debtForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await apiRequest('debts', {
+      method: 'POST',
+      body: {
+        name: debtNameInput.value.trim(),
+        lender: debtLenderInput.value.trim(),
+        amount: Number(debtAmountInput.value),
+        currency,
+        exchangeRate
+      }
+    });
+    debts.push(result.debt);
+    debtForm.reset();
+    debtCurrencyInput.value = appBaseCurrency;
+    updateDebtExchangeRateField();
+    render();
+    showAppNotice('Deuda registrada.');
+  } catch (error) {
+    showAppNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleDebtPaymentSubmit(event) {
+  const paymentFormElement = event.target.closest('[data-debt-payment-form]');
+  if (!paymentFormElement) return;
+  event.preventDefault();
+  const fields = new FormData(paymentFormElement);
+  const button = paymentFormElement.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await apiRequest('debt-payment', {
+      method: 'POST',
+      body: {
+        debtId: paymentFormElement.dataset.debtId,
+        principalAmount: Number(fields.get('principalAmount')),
+        chargesAmount: Number(fields.get('chargesAmount') || 0),
+        date: fields.get('date')
+      }
+    });
+    const [debtResult, transactionResult] = await Promise.all([
+      apiRequest('debts'),
+      apiRequest('transactions')
+    ]);
+    debts = debtResult.debts;
+    debtPayments = debtResult.payments;
+    transactions = transactionResult.transactions;
+    render();
+    showAppNotice(result.message);
+  } catch (error) {
+    button.disabled = false;
+    showAppNotice(error.message, true);
+  }
+}
+
+async function handleDebtListClick(event) {
+  const button = event.target.closest('[data-delete-debt]');
+  if (!button) return;
+  if (!window.confirm('¿Eliminar esta deuda? Las deudas con pagos registrados conservan su historial y no se pueden borrar.')) return;
+  button.disabled = true;
+  try {
+    await apiRequest('debts', { method: 'DELETE', body: { id: button.dataset.deleteDebt } });
+    debts = debts.filter((debt) => debt.id !== button.dataset.deleteDebt);
+    render();
+    showAppNotice('Deuda eliminada.');
+  } catch (error) {
+    button.disabled = false;
+    showAppNotice(error.message, true);
+  }
+}
+
+function renderDebts() {
+  debtForm.hidden = !featureAccess.debts;
+  document.getElementById('debtUpgradeNotice').hidden = featureAccess.debts;
+  const openDebts = debts.filter((debt) => debt.balance > 0);
+  const totals = new Map();
+  openDebts.forEach((debt) => totals.set(debt.currency, (totals.get(debt.currency) || 0) + debt.balance));
+  const totalText = [...totals].map(([currency, amount]) => formatCurrency(amount, currency)).join(' · ') || formatCurrency(0);
+  document.getElementById('debtSummaryValue').textContent = totalText;
+  document.getElementById('debtTotalValue').textContent = totalText;
+  document.getElementById('debtCountLabel').textContent = `${openDebts.length} deuda(s) pendiente(s)`;
+  document.getElementById('debtSummaryLabel').textContent = `${openDebts.length} deuda(s) pendiente(s)`;
+
+  if (!debts.length) {
+    debtsList.innerHTML = `<p class="empty-state">${featureAccess.debts
+      ? 'Aún no registras préstamos o deudas.'
+      : 'Tus préstamos y pagos aparecerán aquí al activar un plan Mensual o Anual.'}</p>`;
+  } else {
+    debtsList.innerHTML = debts.map((debt) => {
+      const history = debtPayments.filter((payment) => payment.debtId === debt.id);
+      const principalPaid = Math.max(0, debt.originalAmount - debt.balance);
+      const chargesPaid = history.reduce((sum, payment) => sum + payment.chargesAmount, 0);
+      return `
+        <article class="debt-card">
+          <div class="debt-card-heading">
+            <div><strong>${escapeHtml(debt.name)}</strong><small>${escapeHtml(debt.lender)}</small></div>
+            ${featureAccess.debts ? `<button class="goal-delete-button" type="button" data-delete-debt="${escapeHtml(debt.id)}">Eliminar</button>` : ''}
+          </div>
+          <p>Saldo pendiente <strong>${formatCurrency(debt.balance, debt.currency)}</strong></p>
+          <div class="debt-metrics">
+            <span>Abonado a capital<strong>${formatCurrency(principalPaid, debt.currency)}</strong></span>
+            <span>Intereses y cargos pagados<strong>${formatCurrency(chargesPaid, debt.currency)}</strong></span>
+          </div>
+          ${debt.balance > 0 && featureAccess.debts ? `
+            <details class="debt-payment-details">
+              <summary>Registrar un pago</summary>
+              <form class="debt-payment-form" data-debt-payment-form data-debt-id="${escapeHtml(debt.id)}">
+                <label>Abono a capital<input name="principalAmount" type="number" min="0" max="${debt.balance}" step="0.01" value="${debt.balance}" required /></label>
+                <label>Intereses y cargos<input name="chargesAmount" type="number" min="0" step="0.01" value="0" /></label>
+                <label>Fecha<input name="date" type="date" value="${getDateString(0)}" required /></label>
+                <button class="button button-primary" type="submit">Guardar pago</button>
+              </form>
+            </details>
+          ` : debt.balance <= 0 ? '<p class="debt-paid-label">Deuda saldada</p>' : ''}
+          <details class="debt-payment-details">
+            <summary>Pagos registrados (${history.length})</summary>
+            <div class="dashboard-compact-list">${history.length
+              ? history.map((payment) => `<p>${formatDate(payment.paidDate)} · Capital ${formatCurrency(payment.principalAmount, payment.currency)} · Cargos ${formatCurrency(payment.chargesAmount, payment.currency)}</p>`).join('')
+              : '<p class="empty-state">Sin pagos registrados.</p>'}</div>
+          </details>
+        </article>
+      `;
+    }).join('');
+  }
+
+  debtPaymentsList.innerHTML = debtPayments.length
+    ? debtPayments.slice(0, 8).map((payment) => `
+      <article class="dashboard-compact-item">
+        <span>${escapeHtml(payment.debtName)} · ${formatDate(payment.paidDate)}</span>
+        <strong>${formatCurrency(payment.principalAmount + payment.chargesAmount, payment.currency)}</strong>
+      </article>
+    `).join('')
+    : '<p class="empty-state">Los pagos de tus préstamos aparecerán aquí.</p>';
+}
+
+function renderDashboardLists() {
+  const upcoming = [...paymentSchedules]
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    .slice(0, 5);
+  dashboardPendingList.innerHTML = upcoming.length
+    ? upcoming.map((payment) => `
+      <article class="dashboard-compact-item">
+        <span><strong>${escapeHtml(payment.title)}</strong><small>${formatPaymentDate(payment.dueDate)}</small></span>
+        <strong>${formatCurrency(payment.amount, payment.currency)}</strong>
+      </article>
+    `).join('')
+    : '<p class="empty-state">No tienes vencimientos programados.</p>';
+
+  const recent = [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+  dashboardRecentList.innerHTML = recent.length
+    ? recent.map((transaction) => `
+      <article class="dashboard-compact-item">
+        <span><strong>${escapeHtml(transaction.description)}</strong><small>${escapeHtml(transaction.category)} · ${formatDate(transaction.date)}</small></span>
+        <strong class="${transaction.type === 'income' ? 'amount-income' : 'amount-expense'}">${transaction.type === 'income' ? '+' : '−'}${formatCurrency(transaction.amount, transaction.currency)}</strong>
+      </article>
+    `).join('')
+    : '<p class="empty-state">Aún no hay movimientos.</p>';
+}
+
+function suggestedEmergencyFundTarget() {
+  const now = new Date();
+  const firstMonth = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const start = localDateString(firstMonth);
+  const end = getDateString(0);
+  const total = transactions
+    .filter((transaction) => transaction.type === 'expense' &&
+      transaction.date >= start && transaction.date <= end &&
+      (transaction.baseCurrency || 'PEN') === appBaseCurrency)
+    .reduce((sum, transaction) => sum + transaction.amountInBaseCurrency, 0);
+  return Math.max(total, 1);
+}
+
+function renderEmergencyFund() {
+  const suggested = suggestedEmergencyFundTarget();
+  const fundCurrency = emergencyFund?.currency || appBaseCurrency;
+  const target = emergencyFund?.target || suggested;
+  const current = emergencyFund?.current || 0;
+  const percent = Math.min((current / target) * 100, 100);
+  document.getElementById('emergencyFundValue').textContent =
+    `${formatCurrency(current, fundCurrency)} / ${formatCurrency(target, fundCurrency)}`;
+  document.getElementById('emergencyFundProgress').textContent =
+    `${Math.round(percent)}% completado · meta sugerida de 6 meses`;
+  emergencyTargetInput.value = String(target.toFixed(2));
+  emergencyCurrentInput.value = String(current.toFixed(2));
+  emergencyTargetInput.placeholder = String(suggested.toFixed(2));
+}
+
+function renderPlans() {
+  const planSection = document.getElementById('subscriptionPlans');
+  if (currentUser?.role === 'master') {
+    planSection.hidden = true;
+    return;
+  }
+  planSection.hidden = false;
+  if (!subscriptionPlans.length) {
+    document.getElementById('planCards').innerHTML = '<p class="empty-state">No hay planes publicados.</p>';
+    return;
+  }
+  if (currentSubscription) {
+    const trialText = currentSubscription.isTrial
+      ? ` · prueba gratis hasta ${formatDate(currentSubscription.endsAt)}`
+      : currentSubscription.endsAt ? ` · vigente hasta ${formatDate(currentSubscription.endsAt)}` : '';
+    document.getElementById('currentPlanSummary').textContent =
+      `Tu plan actual: ${currentSubscription.name}${trialText}` +
+      (hasPendingPlanRequest ? ' · tienes un pago pendiente de revisión.' : '');
+  } else {
+    document.getElementById('currentPlanSummary').textContent =
+      `Tu plan actual es Gratis.${hasPendingPlanRequest ? ' Tienes un pago pendiente de revisión.' : ''}`;
+  }
+  document.getElementById('planCards').innerHTML = subscriptionPlans.map((plan) => {
+    const paid = ['monthly', 'yearly'].includes(plan.billingPeriod);
+    const price = plan.billingPeriod === 'yearly'
+      ? `${formatCurrency(plan.priceAmount, plan.priceCurrency)} al año`
+      : plan.billingPeriod === 'monthly'
+        ? `${formatCurrency(plan.priceAmount, plan.priceCurrency)} al mes`
+        : 'Gratis';
+    const features = plan.features.length
+      ? `<ul>${plan.features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join('')}</ul>`
+      : '<ul><li>Ingresos y gastos</li><li>Resumen financiero</li><li>Una meta de ahorro</li></ul>';
+    return `
+      <article class="plan-card${plan.billingPeriod === currentSubscription?.billingPeriod ? ' current' : ''}">
+        <h3>${escapeHtml(plan.name)}</h3>
+        <strong>${price}</strong>
+        <p>${escapeHtml(plan.description)}</p>
+        ${features}
+        ${paid && plan.trialDays > 0 ? `<small class="plan-trial">Prueba gratuita de ${plan.trialDays} días</small>` : ''}
+        ${paid ? `<button class="button button-primary wide" type="button" data-plan-period="${escapeHtml(plan.billingPeriod)}" ${hasPendingPlanRequest ? 'disabled' : ''}>${hasPendingPlanRequest ? 'Pago en revisión' : 'Elegir plan'}</button>` : ''}
+      </article>
+    `;
+  }).join('');
+}
+
+function handlePlanCardClick(event) {
+  const button = event.target.closest('[data-plan-period]');
+  if (!button || hasPendingPlanRequest) return;
+  const plan = subscriptionPlans.find((item) => item.billingPeriod === button.dataset.planPeriod);
+  if (!plan) return;
+  selectedPlanPeriod.value = plan.billingPeriod;
+  document.getElementById('selectedPlanHeading').textContent =
+    `Solicitar ${plan.name} · ${formatCurrency(plan.priceAmount, plan.priceCurrency)}`;
+  planPaymentReferenceInput.value = '';
+  planPaymentForm.hidden = false;
+  renderPlanPaymentInstructions();
+  planPaymentForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function renderPlanPaymentInstructions() {
+  if (planPaymentMethodInput.value === 'yape') {
+    const number = paymentInstructions.yapeNumber;
+    const owner = paymentInstructions.yapeName;
+    planPaymentInstructions.innerHTML = number
+      ? `<p>Yapea al <strong>${escapeHtml(number)}</strong>${owner ? ` · Titular: ${escapeHtml(owner)}` : ''}. Luego ingresa el número de operación.</p>`
+      : '<p>El administrador aún no configuró un número de Yape. Elige transferencia o inténtalo más tarde.</p>';
+  } else {
+    const accounts = paymentInstructions.bankAccounts;
+    planPaymentInstructions.innerHTML = accounts
+      ? `<p>${escapeHtml(accounts).replace(/\n/g, '<br>')}</p>`
+      : '<p>El administrador aún no configuró cuentas bancarias. Elige Yape o inténtalo más tarde.</p>';
+  }
+}
+
+async function handlePlanPaymentSubmit(event) {
+  event.preventDefault();
+  const button = planPaymentForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await apiRequest('plan-request', {
+      method: 'POST',
+      body: {
+        billingPeriod: selectedPlanPeriod.value,
+        paymentMethod: planPaymentMethodInput.value,
+        paymentReference: planPaymentReferenceInput.value.trim()
+      }
+    });
+    const status = await apiRequest('plan-status');
+    currentSubscription = status.subscription;
+    hasPendingPlanRequest = status.hasPendingRequest;
+    planPaymentForm.hidden = true;
+    renderPlans();
+    showAppNotice(result.message);
+  } catch (error) {
+    showAppNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleEmergencyFundSubmit(event) {
+  event.preventDefault();
+  const button = emergencyFundForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await apiRequest('emergency-fund', {
+      method: 'PUT',
+      body: {
+        target: Number(emergencyTargetInput.value),
+        current: Number(emergencyCurrentInput.value)
+      }
+    });
+    emergencyFund = result.fund;
+    render();
+    showAppNotice('Fondo de emergencia actualizado.');
+  } catch (error) {
+    showAppNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function handlePaymentCalendarClick(event) {
+  const dayButton = event.target.closest('[data-payment-date]');
+  if (!dayButton) return;
+  selectedPaymentDate = dayButton.dataset.paymentDate;
+  renderPaymentCalendar();
+}
+
+function changePaymentCalendarMonth(offset) {
+  paymentCalendarMonth = new Date(
+    paymentCalendarMonth.getFullYear(),
+    paymentCalendarMonth.getMonth() + offset,
+    1
+  );
+  selectedPaymentDate = localDateString(paymentCalendarMonth);
+  renderPaymentCalendar();
+}
+
+function localDateString(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function parseLocalDate(value) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function projectedPaymentDates(payment, monthStart, monthEnd) {
+  const anchor = parseLocalDate(payment.dueDate);
+  let date = new Date(anchor);
+  const dates = [];
+  for (let count = 0; count < 120 && date <= monthEnd; count += 1) {
+    if (date >= monthStart) {
+      dates.push(localDateString(date));
+    }
+    if (payment.recurrence === 'once') break;
+    if (payment.recurrence === 'monthly') {
+      const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+      date = new Date(
+        nextMonth.getFullYear(),
+        nextMonth.getMonth(),
+        Math.min(anchor.getDate(), new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate())
+      );
+    } else {
+      const nextYear = date.getFullYear() + 1;
+      date = new Date(
+        nextYear,
+        anchor.getMonth(),
+        Math.min(anchor.getDate(), new Date(nextYear, anchor.getMonth() + 1, 0).getDate())
+      );
+    }
+  }
+  return dates;
+}
+
+function renderPaymentCalendar() {
+  const year = paymentCalendarMonth.getFullYear();
+  const month = paymentCalendarMonth.getMonth();
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
+  const monthText = paymentCalendarMonth.toLocaleString('es-PE', { month: 'long', year: 'numeric' });
+  paymentMonthLabel.textContent = monthText.charAt(0).toUpperCase() + monthText.slice(1);
+
+  const paymentDates = new Map();
+  for (const payment of paymentSchedules) {
+    for (const date of projectedPaymentDates(payment, monthStart, monthEnd)) {
+      const entries = paymentDates.get(date) || [];
+      entries.push(payment);
+      paymentDates.set(date, entries);
+    }
+  }
+
+  const weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  const leadingDays = (monthStart.getDay() + 6) % 7;
+  const dayCount = monthEnd.getDate();
+  const cellCount = Math.ceil((leadingDays + dayCount) / 7) * 7;
+  const cells = [];
+  for (let index = 0; index < cellCount; index += 1) {
+    const day = index - leadingDays + 1;
+    if (day < 1 || day > dayCount) {
+      cells.push('<span class="payment-calendar-empty" aria-hidden="true"></span>');
+      continue;
+    }
+    const date = localDateString(new Date(year, month, day));
+    const events = paymentDates.get(date) || [];
+    const isSelected = date === selectedPaymentDate;
+    const isToday = date === getDateString(0);
+    cells.push(`
+      <button class="payment-calendar-day${events.length ? ' has-payment' : ''}${isSelected ? ' selected' : ''}${isToday ? ' today' : ''}"
+        type="button" data-payment-date="${date}" aria-pressed="${isSelected}" aria-label="${date}${events.length ? `, ${events.length} pago(s)` : ''}">
+        <span>${day}</span>${events.length ? `<i aria-hidden="true"></i>` : ''}
+      </button>
+    `);
+  }
+  paymentCalendar.innerHTML = `
+    <div class="payment-calendar-grid payment-calendar-weekdays">${weekdays.map((day) => `<span>${day}</span>`).join('')}</div>
+    <div class="payment-calendar-grid">${cells.join('')}</div>
+  `;
+
+  const selectedDateText = parseLocalDate(selectedPaymentDate)
+    .toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
+  selectedPaymentDateLabel.textContent = `Pagos para ${selectedDateText}`;
+  const selectedPayments = paymentDates.get(selectedPaymentDate) || [];
+  if (!selectedPayments.length) {
+    paymentsList.innerHTML = '<p class="empty-state">No hay vencimientos programados para este día.</p>';
+  } else {
+    paymentsList.innerHTML = selectedPayments.map((payment) => {
+      const actualOccurrence = payment.dueDate === selectedPaymentDate;
+      return `
+        <article class="payment-item">
+          <div><strong>${escapeHtml(payment.title)}</strong><span>${formatCurrency(payment.amount, payment.currency)} · ${escapeHtml(payment.category)}</span></div>
+          <p>${actualOccurrence ? 'Vencimiento programado' : 'Próximo vencimiento estimado; registra el anterior para habilitarlo.'}</p>
+        </article>
+      `;
+    }).join('');
+  }
+
+  const currentPending = paymentSchedules.filter((payment) => payment.dueDate >= getDateString(0));
+  if (paymentSchedules.length && !currentPending.length) {
+    paymentsList.insertAdjacentHTML('beforeend', '<p class="empty-state">Tienes pagos vencidos sin marcar. Revísalos en la lista de próximos vencimientos.</p>');
+  }
+  renderUpcomingPayments();
+}
+
+function renderUpcomingPayments() {
+  if (!paymentSchedules.length) {
+    upcomingPaymentsList.innerHTML = '<p class="empty-state">Aún no has programado pagos.</p>';
+    return;
+  }
+
+  upcomingPaymentsList.innerHTML = paymentSchedules.map((payment) => {
+    const due = parseLocalDate(payment.dueDate);
+    const today = parseLocalDate(getDateString(0));
+    const daysRemaining = Math.round((due - today) / 86400000);
+    const status = daysRemaining < 0
+      ? `Vencido hace ${Math.abs(daysRemaining)} día(s)`
+      : daysRemaining === 0 ? 'Vence hoy' : `Vence en ${daysRemaining} día(s)`;
+    const recurrence = payment.recurrence === 'monthly'
+      ? 'Mensual'
+      : payment.recurrence === 'yearly' ? 'Anual' : 'Una sola vez';
+    return `
+      <article class="payment-item upcoming-payment${daysRemaining < 0 ? ' overdue' : ''}">
+        <div class="payment-item-heading">
+          <div><strong>${escapeHtml(payment.title)}</strong><span>${escapeHtml(payment.category)} · ${recurrence}</span></div>
+          <strong>${formatCurrency(payment.amount, payment.currency)}</strong>
+        </div>
+        <p>${status} · ${formatPaymentDate(payment.dueDate)}</p>
+        <div class="goal-actions">
+          ${featureAccess.payments ? `<button class="edit-button" type="button" data-mark-payment="${escapeHtml(payment.occurrenceId)}">Marcar pagado</button>
+          <button class="goal-delete-button" type="button" data-delete-payment="${escapeHtml(payment.id)}">Eliminar</button>` : ''}
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function formatPaymentDate(value) {
+  return parseLocalDate(value).toLocaleDateString('es-PE', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
+async function handlePaymentListClick(event) {
+  const paidButton = event.target.closest('[data-mark-payment]');
+  const deleteButton = event.target.closest('[data-delete-payment]');
+  if (paidButton) {
+    paidButton.disabled = true;
+    try {
+      const result = await apiRequest('payment-paid', {
+        method: 'POST',
+        body: { occurrenceId: paidButton.dataset.markPayment }
+      });
+      const [paymentResult, transactionResult] = await Promise.all([
+        apiRequest('payments'),
+        apiRequest('transactions')
+      ]);
+      paymentSchedules = paymentResult.payments;
+      transactions = transactionResult.transactions;
+      render();
+      showAppNotice(result.message);
+    } catch (error) {
+      paidButton.disabled = false;
+      showAppNotice(error.message, true);
+    }
+    return;
+  }
+  if (deleteButton) {
+    if (!window.confirm('¿Eliminar este recordatorio y sus próximos vencimientos? Los gastos que ya registraste se conservarán.')) {
+      return;
+    }
+    deleteButton.disabled = true;
+    try {
+      await apiRequest('payments', { method: 'DELETE', body: { id: deleteButton.dataset.deletePayment } });
+      paymentSchedules = paymentSchedules.filter((payment) => payment.id !== deleteButton.dataset.deletePayment);
+      renderPaymentCalendar();
+      showAppNotice('Recordatorio eliminado.');
+    } catch (error) {
+      deleteButton.disabled = false;
+      showAppNotice(error.message, true);
+    }
+  }
+}
+
+function render() {
+  const range = getDashboardDateRange();
+  monthLabel.textContent = range.label;
+  dashboardPeriodLabel.textContent = range.label;
+  const summary = summarizeTransactions(range);
   balanceValue.textContent = formatCurrency(summary.balance);
   incomeValue.textContent = formatCurrency(summary.income);
   expenseValue.textContent = formatCurrency(summary.expense);
-  savedValue.textContent = formatCurrency(summary.saved);
-  balanceValue.parentElement.querySelector('small').textContent = summary.deltaText;
+  document.getElementById('incomePeriodCaption').textContent = `Entradas · ${range.label.toLowerCase()}`;
+  document.getElementById('expensePeriodCaption').textContent = `Salidas · ${range.label.toLowerCase()}`;
+  document.getElementById('pendingPaymentsValue').textContent = String(
+    paymentSchedules.filter((payment) => payment.dueDate <= getDateString(7)).length
+  );
+  document.getElementById('pendingPaymentsCaption').textContent =
+    `${paymentSchedules.filter((payment) => payment.dueDate < getDateString(0)).length} vencidos · próximos 7 días`;
 
-  renderMonthlyChart();
-  renderCategoryChart();
+  renderMonthlyChart(range);
+  renderCategoryChart(range);
   renderCategories();
-  renderBudget(buildBudgetData());
+  renderBudget(buildBudgetData(), budgets);
+  renderPaymentCalendar();
+  renderDashboardLists();
+  renderDebts();
+  renderEmergencyFund();
+  renderPlans();
   renderGoals();
   renderMonthOptions();
   renderTable();
@@ -1913,58 +2728,22 @@ function updateCurrencyHistoryNotice() {
     : '';
 }
 
-function summarizeTransactions() {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
-
+function summarizeTransactions(range) {
   let income = 0;
   let expense = 0;
-
   for (const transaction of transactions) {
-    const date = new Date(transaction.date + 'T00:00:00');
-    const sameMonth = date.getFullYear() === currentYear && date.getMonth() === currentMonth;
-
-    if (!sameMonth) {
+    if (transaction.date < range.start || transaction.date > range.end ||
+        (transaction.baseCurrency || 'PEN') !== appBaseCurrency) {
       continue;
     }
-
     if (transaction.type === 'income') {
-      if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) income += transaction.amountInBaseCurrency;
+      income += transaction.amountInBaseCurrency;
     } else {
-      if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) expense += transaction.amountInBaseCurrency;
+      expense += transaction.amountInBaseCurrency;
     }
   }
 
-  const balance = income - expense;
-  const saved = Math.max(0, income * 0.3);
-  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const previousIncome = transactions
-    .filter((t) => {
-      const date = new Date(t.date + 'T00:00:00');
-      return date.getFullYear() === previousMonth.getFullYear() && date.getMonth() === previousMonth.getMonth();
-    })
-    .filter((t) => (t.baseCurrency || 'PEN') === appBaseCurrency)
-    .reduce((sum, t) => sum + (t.type === 'income' ? t.amountInBaseCurrency : 0), 0);
-
-  const previousExpense = transactions
-    .filter((t) => {
-      const date = new Date(t.date + 'T00:00:00');
-      return date.getFullYear() === previousMonth.getFullYear() && date.getMonth() === previousMonth.getMonth();
-    })
-    .filter((t) => (t.baseCurrency || 'PEN') === appBaseCurrency)
-    .reduce((sum, t) => sum + (t.type === 'expense' ? t.amountInBaseCurrency : 0), 0);
-
-  const prevBalance = previousIncome - previousExpense;
-  const delta = balance - prevBalance;
-
-  return {
-    income,
-    expense,
-    balance,
-    saved,
-    deltaText: delta >= 0 ? `+${formatCurrency(delta)} vs. mes anterior` : `${formatCurrency(delta)} vs. mes anterior`
-  };
+  return { income, expense, balance: income - expense };
 }
 
 function buildBudgetData() {
@@ -1993,29 +2772,62 @@ function buildBudgetData() {
 }
 
 function renderBudget(entries) {
-  if (!entries.length) {
-    budgetList.innerHTML = '<p class="empty-state">Aún no hay gastos este mes.</p>';
+  const expenses = new Map(entries.map((entry) => [entry.category.toLowerCase(), entry.total]));
+  budgetForm.hidden = !featureAccess.budgets;
+  document.getElementById('budgetUpgradeNotice').hidden = featureAccess.budgets;
+  if (!budgets.length) {
+    budgetList.innerHTML = `<p class="empty-state">${featureAccess.budgets
+      ? 'Aún no defines límites mensuales. Agrega un presupuesto para vigilar una categoría.'
+      : 'Tus presupuestos aparecerán aquí al activar un plan Mensual o Anual.'}</p>`;
     return;
   }
+  budgetList.innerHTML = budgets.map((budget) => {
+    const spent = budget.currency === appBaseCurrency ? (expenses.get(budget.category.toLowerCase()) || 0) : null;
+    const percent = spent === null ? 0 : Math.min((spent / budget.amount) * 100, 100);
+    return `
+      <article class="budget-item" data-budget-id="${escapeHtml(budget.id)}">
+        <header><span>${escapeHtml(budget.category)}</span><strong>${formatCurrency(budget.amount, budget.currency)}</strong></header>
+        <p>${spent === null ? `Moneda anterior: ${escapeHtml(budget.currency)}. Actualiza el límite en ${appBaseCurrency}.` : `${formatCurrency(spent)} de ${formatCurrency(budget.amount)} · ${Math.round(percent)}%`}</p>
+        <div class="progress-track"><span class="progress-fill expense" style="width:${percent}%"></span></div>
+        ${featureAccess.budgets ? `<button class="goal-delete-button" type="button" data-delete-budget="${escapeHtml(budget.id)}">Eliminar</button>` : ''}
+      </article>
+    `;
+  }).join('');
+}
 
-  const maxTotal = Math.max(...entries.map((entry) => entry.total), 1);
+async function handleBudgetSubmit(event) {
+  event.preventDefault();
+  const button = budgetForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await apiRequest('budgets', {
+      method: 'POST',
+      body: { category: budgetCategoryInput.value, amount: Number(budgetAmountInput.value) }
+    });
+    budgets.push(result.budget);
+    budgetForm.reset();
+    render();
+    showAppNotice('Presupuesto mensual guardado.');
+  } catch (error) {
+    showAppNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
 
-  budgetList.innerHTML = entries
-    .map((entry) => {
-      const width = Math.min((entry.total / maxTotal) * 100, 100);
-      return `
-        <div class="budget-item">
-          <header>
-            <span>${escapeHtml(entry.category)}</span>
-            <span>${formatCurrency(entry.total)}</span>
-          </header>
-          <div class="progress-track">
-            <span class="progress-fill expense" style="width: ${width}%"></span>
-          </div>
-        </div>
-      `;
-    })
-    .join('');
+async function handleBudgetListClick(event) {
+  const button = event.target.closest('[data-delete-budget]');
+  if (!button) return;
+  button.disabled = true;
+  try {
+    await apiRequest('budgets', { method: 'DELETE', body: { id: button.dataset.deleteBudget } });
+    budgets = budgets.filter((item) => item.id !== button.dataset.deleteBudget);
+    render();
+    showAppNotice('Presupuesto eliminado.');
+  } catch (error) {
+    button.disabled = false;
+    showAppNotice(error.message, true);
+  }
 }
 
 async function handleCategorySubmit(event) {
@@ -2047,6 +2859,7 @@ async function handleCategorySubmit(event) {
 
 function renderCategories() {
   const selectedCategory = categoryInput.value;
+  const selectedPaymentCategory = paymentCategoryInput.value;
   const allNames = [...SUGGESTED_CATEGORIES, ...categories.map((category) => category.name)]
     .filter((name, index, names) => names.findIndex((candidate) => candidate.toLowerCase() === name.toLowerCase()) === index);
 
@@ -2056,12 +2869,26 @@ function renderCategories() {
   if (allNames.includes(selectedCategory)) {
     categoryInput.value = selectedCategory;
   }
+  paymentCategoryInput.innerHTML = allNames
+    .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+    .join('');
+  if (allNames.includes(selectedPaymentCategory)) {
+    paymentCategoryInput.value = selectedPaymentCategory;
+  }
 
   const filterValue = filterCategoryInput.value;
   filterCategoryInput.innerHTML = '<option value="all">Todas las categorías</option>' + allNames
     .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
     .join('');
   filterCategoryInput.value = allNames.includes(filterValue) ? filterValue : 'all';
+  const budgetCategory = budgetCategoryInput.value;
+  budgetCategoryInput.innerHTML = allNames
+    .filter((name) => name !== 'Ingresos')
+    .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+    .join('');
+  if ([...budgetCategoryInput.options].some((option) => option.value === budgetCategory)) {
+    budgetCategoryInput.value = budgetCategory;
+  }
 
   if (!categories.length) {
     customCategoryList.innerHTML = '<p class="empty-state">Aún no tienes categorías personalizadas.</p>';
@@ -2187,67 +3014,112 @@ function renderTable() {
   });
 }
 
-function renderMonthlyChart() {
-  const lastSixMonths = [];
-  const today = new Date();
-
-  for (let i = 5; i >= 0; i -= 1) {
-    const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-    lastSixMonths.push({
-      label: date.toLocaleString('es-ES', { month: 'short' }),
-      monthKey: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`,
-      income: 0,
-      expense: 0
-    });
-  }
-
-  transactions.forEach((transaction) => {
-    const date = new Date(transaction.date + 'T00:00:00');
-    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    const entry = lastSixMonths.find((item) => item.monthKey === monthKey);
-
-    if (!entry) {
-      return;
-    }
-
-    if (transaction.type === 'income') {
-      if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) entry.income += transaction.amountInBaseCurrency;
-    } else {
-      if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) entry.expense += transaction.amountInBaseCurrency;
-    }
+function setDashboardPeriod(period) {
+  if (!['week', 'month', 'year', 'all', 'range'].includes(period)) return;
+  dashboardPeriod = period;
+  document.querySelectorAll('[data-period]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.period === period);
   });
-
-  const maxValue = Math.max(...lastSixMonths.flatMap((entry) => [entry.income, entry.expense]), 1);
-
-  monthlyChart.innerHTML = lastSixMonths
-    .map(
-      (entry) => `
-        <div class="chart-bar-group">
-          <div class="chart-stack">
-            <span class="bar bar-income" style="height: ${(entry.income / maxValue) * 100}%" title="Ingresos: ${formatCurrency(entry.income)}"></span>
-            <span class="bar bar-expense" style="height: ${(entry.expense / maxValue) * 100}%" title="Gastos: ${formatCurrency(entry.expense)}"></span>
-          </div>
-          <span class="chart-label">${escapeHtml(entry.label)}</span>
-        </div>
-      `
-    )
-    .join('');
+  dashboardDateRange.hidden = period !== 'range';
+  render();
 }
 
-function renderCategoryChart() {
-  const currentMonth = new Date();
-  const totals = {};
+function getDashboardDateRange() {
+  const today = getDateString(0);
+  let start = today;
+  let end = today;
+  let label = '';
+  if (dashboardPeriod === 'week') {
+    const date = parseLocalDate(today);
+    const mondayOffset = (date.getDay() + 6) % 7;
+    date.setDate(date.getDate() - mondayOffset);
+    start = localDateString(date);
+    label = `Semana del ${formatDate(start)} al ${formatDate(today)}`;
+  } else if (dashboardPeriod === 'month') {
+    start = `${today.slice(0, 7)}-01`;
+    label = parseLocalDate(today).toLocaleDateString('es-PE', { month: 'long', year: 'numeric' });
+  } else if (dashboardPeriod === 'year') {
+    start = `${today.slice(0, 4)}-01-01`;
+    label = `Año ${today.slice(0, 4)}`;
+  } else if (dashboardPeriod === 'all') {
+    start = transactions.length ? transactions.reduce((min, item) => item.date < min ? item.date : min, today) : today;
+    label = 'Todo el período';
+  } else {
+    start = dashboardStartDate.value || today;
+    end = dashboardEndDate.value || today;
+    label = start <= end ? `${formatDate(start)} al ${formatDate(end)}` : 'El rango de fechas no es válido';
+    if (start > end) {
+      return { start: today, end: today, label };
+    }
+  }
+  return { start, end, label };
+}
 
+function renderMonthlyChart(range) {
+  const start = parseLocalDate(range.start);
+  const end = parseLocalDate(range.end);
+  const dayCount = Math.max(1, Math.round((end - start) / 86400000) + 1);
+  const groupByMonth = dayCount > 62;
+  const data = new Map();
+  for (const transaction of transactions) {
+    if (transaction.date < range.start || transaction.date > range.end ||
+        (transaction.baseCurrency || 'PEN') !== appBaseCurrency) continue;
+    const date = parseLocalDate(transaction.date);
+    const key = groupByMonth ? transaction.date.slice(0, 7) : transaction.date;
+    const entry = data.get(key) || {
+      label: groupByMonth
+        ? date.toLocaleDateString('es-PE', { month: 'short', year: dayCount > 366 ? '2-digit' : undefined })
+        : String(date.getDate()),
+      income: 0,
+      expense: 0
+    };
+    entry[transaction.type] += transaction.amountInBaseCurrency;
+    data.set(key, entry);
+  }
+  const points = [];
+  if (groupByMonth) {
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    const lastMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (cursor <= lastMonth && points.length < 120) {
+      const key = localDateString(cursor).slice(0, 7);
+      points.push(data.get(key) || {
+        label: cursor.toLocaleDateString('es-PE', { month: 'short', year: dayCount > 366 ? '2-digit' : undefined }),
+        income: 0,
+        expense: 0
+      });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  } else {
+    const cursor = new Date(start);
+    while (cursor <= end && points.length < 62) {
+      const key = localDateString(cursor);
+      points.push(data.get(key) || { label: String(cursor.getDate()), income: 0, expense: 0 });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  const maxValue = Math.max(...points.flatMap((entry) => [entry.income, entry.expense]), 1);
+  monthlyChart.style.gridTemplateColumns = `repeat(${Math.max(points.length, 1)}, minmax(0, 1fr))`;
+  monthlyChart.innerHTML = points.map((entry) => `
+    <div class="chart-bar-group">
+      <div class="chart-stack">
+        <span class="bar bar-income" style="height:${entry.income ? Math.max((entry.income / maxValue) * 100, 2) : 0}%" title="Ingresos: ${formatCurrency(entry.income)}"></span>
+        <span class="bar bar-expense" style="height:${entry.expense ? Math.max((entry.expense / maxValue) * 100, 2) : 0}%" title="Gastos: ${formatCurrency(entry.expense)}"></span>
+      </div>
+      <span class="chart-label">${escapeHtml(entry.label)}</span>
+    </div>
+  `).join('');
+}
+
+function renderCategoryChart(range) {
+  const totals = {};
   transactions.forEach((transaction) => {
-    const date = new Date(transaction.date + 'T00:00:00');
-    if (date.getFullYear() !== currentMonth.getFullYear() || date.getMonth() !== currentMonth.getMonth() || transaction.type !== 'expense') {
+    if (transaction.date < range.start || transaction.date > range.end || transaction.type !== 'expense' ||
+        (transaction.baseCurrency || 'PEN') !== appBaseCurrency) {
       return;
     }
 
     const category = transaction.category || 'Otros';
-    if ((transaction.baseCurrency || 'PEN') === appBaseCurrency) {
-      totals[category] = (totals[category] || 0) + transaction.amountInBaseCurrency;
-    }
+    totals[category] = (totals[category] || 0) + transaction.amountInBaseCurrency;
   });
 
   const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 4);
@@ -2291,6 +3163,9 @@ function renderCategoryChart() {
 }
 
 function renderGoals() {
+  const atFreeGoalLimit = currentUser?.role !== 'master' && !featureAccess.budgets && goals.length >= 1;
+  goalForm.hidden = atFreeGoalLimit;
+  document.getElementById('goalUpgradeNotice').hidden = !atFreeGoalLimit;
   if (!goals.length) {
     goalsList.innerHTML = '<p class="empty-state">Aún no agregas metas.</p>';
     return;
@@ -2389,6 +3264,10 @@ function applyBaseCurrency(currency) {
     }
     updateExchangeRateField();
   }
+  if (paymentCurrencyInput.value === previousBaseCurrency) {
+    paymentCurrencyInput.value = appBaseCurrency;
+  }
+  updatePaymentExchangeRateField();
   render();
 }
 

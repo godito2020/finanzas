@@ -39,7 +39,6 @@
             <p class="auth-install-help" id="authInstallHelp" role="status" hidden></p>
             <button class="auth-link" id="showSetupButton" type="button" hidden>Configurar cuenta maestra</button>
           </form>
-
           <form class="auth-form" id="setupMasterForm" hidden>
             <label for="setupCode">Código único de instalación</label>
             <input id="setupCode" type="password" autocomplete="off" maxlength="200" required />
@@ -60,6 +59,10 @@
             <input id="registerEmail" type="email" autocomplete="email" maxlength="254" placeholder="tu@correo.com" required />
             <label for="registerPassword">Contraseña <span class="field-hint">12 caracteres mínimo</span></label>
             <input id="registerPassword" type="password" autocomplete="new-password" minlength="12" required />
+            <label class="terms-consent" for="registerTerms">
+              <input id="registerTerms" type="checkbox" required />
+              <span>He leído y acepto los <a href="./terminos.html" target="_blank" rel="noopener noreferrer">Términos y condiciones</a>.</span>
+            </label>
             <button class="button button-primary wide" type="submit">Crear cuenta</button>
             <p class="auth-switch">¿Ya tienes cuenta? <button class="auth-link" data-auth-view="login" type="button">Inicia sesión</button></p>
           </form>
@@ -94,6 +97,7 @@
           </form>
         </div>
         <p class="auth-privacy">Tus movimientos y categorías son privados y están protegidos en tu cuenta.</p>
+        <p class="auth-footer"><a href="./terminos.html" target="_blank" rel="noopener noreferrer">Términos y condiciones</a></p>
         <p class="auth-footer">Hecho por <a href="https://softhard.pe" target="_blank" rel="noopener noreferrer">SoftHard Peru</a></p>
       </div>
     </section>
@@ -108,12 +112,14 @@
             <small>tus números, en orden</small>
           </span>
         </a>
+        <div class="account-menu"><span id="accountEmail"></span><button class="button button-reset" type="button" id="logoutButton">Cerrar sesión</button></div>
 
         <p class="nav-heading">TU ESPACIO</p>
         <nav class="nav" aria-label="Navegación principal">
           <a class="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Resumen</a>
           <a class="nav-item" href="#capture"><span aria-hidden="true">＋</span> Nuevo movimiento</a>
           <a class="nav-item" href="#transactions"><span aria-hidden="true">↕</span> Movimientos</a>
+          <a class="nav-item" href="#payments"><span aria-hidden="true">◷</span> Pagos</a>
           <a class="nav-item" href="#goals"><span aria-hidden="true">◎</span> Metas</a>
         </nav>
 
@@ -140,32 +146,59 @@
             <button class="button button-reset" type="button" id="openSuggestionButton">Enviar sugerencia</button>
             <button class="button button-install install-button" type="button" id="installButton" hidden>Instalar app</button>
             <button class="button button-reset" type="button" id="adminPanelButton" hidden>Administración</button>
-            <div class="account-menu"><span id="accountEmail"></span><button class="button button-reset" type="button" id="logoutButton">Cerrar sesión</button></div>
           </div>
         </header>
         <p class="app-notice" id="appNotice" role="status" aria-live="polite" hidden></p>
         <p class="app-notice currency-history-notice" id="currencyHistoryNotice" role="status" hidden></p>
 
-        <section class="cards" aria-label="Resumen del mes">
+        <section class="panel dashboard-filters" aria-label="Período del resumen">
+          <div class="dashboard-periods" role="group" aria-label="Filtrar resumen">
+            <button type="button" class="period-button" data-period="week">Semana</button>
+            <button type="button" class="period-button active" data-period="month">Mes</button>
+            <button type="button" class="period-button" data-period="year">Año</button>
+            <button type="button" class="period-button" data-period="all">Todo</button>
+            <button type="button" class="period-button" data-period="range">Rango</button>
+          </div>
+          <div class="dashboard-date-range" id="dashboardDateRange" hidden>
+            <label>Desde <input id="dashboardStartDate" type="date" /></label>
+            <label>Hasta <input id="dashboardEndDate" type="date" /></label>
+          </div>
+          <span id="dashboardPeriodLabel" class="dashboard-period-label"></span>
+        </section>
+
+        <section class="dashboard-highlights" aria-label="Pendientes y objetivos">
+          <article class="panel dashboard-highlight">
+            <span class="card-icon expense-icon" aria-hidden="true">▤</span>
+            <div><small id="debtSummaryLabel">Deudas registradas</small><strong id="debtSummaryValue">S/ 0.00</strong></div>
+            <a href="#debts">Ver pagos</a>
+          </article>
+          <article class="panel dashboard-highlight">
+            <span class="card-icon savings-icon" aria-hidden="true">◎</span>
+            <div><small>Fondo de emergencia · meta sugerida</small><strong id="emergencyFundValue">S/ 0.00 / S/ 0.00</strong><small id="emergencyFundProgress">Basado en tus gastos de los últimos 6 meses.</small></div>
+            <a href="#planning">Configurar</a>
+          </article>
+        </section>
+
+        <section class="cards" aria-label="Resumen financiero del período">
           <article class="card balance-card">
-            <div class="card-heading"><span>Balance del mes</span><span class="card-icon balance-icon" aria-hidden="true">↗</span></div>
+            <div class="card-heading"><span>Te sobra este período</span><span class="card-icon balance-icon" aria-hidden="true">↗</span></div>
             <strong id="balanceValue">$0.00</strong>
             <small id="balanceDelta">Ingresos menos gastos</small>
           </article>
           <article class="card">
             <div class="card-heading"><span>Ingresos</span><span class="card-icon income-icon" aria-hidden="true">＋</span></div>
             <strong id="incomeValue">$0.00</strong>
-            <small>Entradas registradas este mes</small>
+            <small id="incomePeriodCaption">Entradas registradas</small>
           </article>
           <article class="card expense-card">
             <div class="card-heading"><span>Gastos</span><span class="card-icon expense-icon" aria-hidden="true">−</span></div>
             <strong id="expenseValue">$0.00</strong>
-            <small>Salidas registradas este mes</small>
+            <small id="expensePeriodCaption">Salidas registradas</small>
           </article>
           <article class="card">
-            <div class="card-heading"><span>Ahorro sugerido</span><span class="card-icon savings-icon" aria-hidden="true">◎</span></div>
-            <strong id="savedValue">$0.00</strong>
-            <small>30% de tus ingresos del mes</small>
+            <div class="card-heading"><span>Pagos pendientes</span><span class="card-icon savings-icon" aria-hidden="true">◷</span></div>
+            <strong id="pendingPaymentsValue">0</strong>
+            <small id="pendingPaymentsCaption">Próximos vencimientos</small>
           </article>
         </section>
 
@@ -183,6 +216,116 @@
             </div>
             <div id="categoryChart" class="category-chart" aria-live="polite"></div>
           </article>
+        </section>
+
+        <section class="dashboard-lower-grid">
+          <section class="panel budget-panel" id="dashboardBudgets">
+            <div class="panel-header">
+              <div><p class="eyebrow">PLANIFICA TU MES</p><h2>Presupuestos por categoría</h2></div>
+            </div>
+            <form id="budgetForm" class="budget-form">
+              <select id="budgetCategoryInput" aria-label="Categoría del presupuesto" required></select>
+              <input id="budgetAmountInput" type="number" min="0.01" step="0.01" placeholder="Límite mensual" aria-label="Límite mensual" required />
+              <button class="button button-primary" type="submit">Agregar</button>
+            </form>
+            <p class="premium-feature-notice" id="budgetUpgradeNotice" hidden>Los presupuestos por categoría están disponibles en los planes Mensual y Anual. <a href="#subscriptionPlans">Ver planes</a></p>
+            <div id="budgetList" class="budget-list" aria-live="polite"></div>
+          </section>
+          <section class="panel dashboard-pending-panel">
+            <div class="panel-header"><div><p class="eyebrow">POR ATENDER</p><h2>Vencimientos próximos</h2></div><a href="#payments">Ver agenda</a></div>
+            <div id="dashboardPendingList" class="dashboard-compact-list" aria-live="polite"></div>
+          </section>
+          <section class="panel dashboard-recent-panel">
+            <div class="panel-header"><div><p class="eyebrow">ACTIVIDAD</p><h2>Últimos movimientos</h2></div><a href="#transactions">Ver todos</a></div>
+            <div id="dashboardRecentList" class="dashboard-compact-list" aria-live="polite"></div>
+          </section>
+        </section>
+
+        <section class="panel-grid payment-section" id="payments">
+          <section class="panel payment-agenda-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">PLANIFICA TUS VENCIMIENTOS</p><h2>Agenda de pagos</h2></div>
+            </div>
+            <p class="section-description">Consulta tus próximos vencimientos. Con el servicio de avisos del servidor configurado, recibirás un correo un día antes y el día del pago a la hora indicada.</p>
+            <p class="premium-feature-notice" id="paymentsUpgradeNotice" hidden>Programar, marcar y recibir alertas de pagos requiere un plan Mensual o Anual. <a href="#subscriptionPlans">Ver planes</a></p>
+            <p class="premium-feature-note" id="dailyAlertNote">El resumen diario por correo se envía a las 7 a. m. local e incluye vencidos, pagos de hoy y los próximos 7 días cuando el servidor tiene el cron configurado.</p>
+            <div class="payment-calendar-heading">
+              <button class="button button-quiet" id="previousPaymentMonth" type="button" aria-label="Mes anterior">‹</button>
+              <strong id="paymentMonthLabel"></strong>
+              <button class="button button-quiet" id="nextPaymentMonth" type="button" aria-label="Mes siguiente">›</button>
+            </div>
+            <div class="payment-calendar" id="paymentCalendar" aria-label="Calendario de pagos"></div>
+            <p class="payment-date-label" id="selectedPaymentDateLabel"></p>
+            <div class="payment-list" id="paymentsList" aria-live="polite"></div>
+            <h3 class="upcoming-payments-title">Próximos vencimientos</h3>
+            <div class="payment-list" id="upcomingPaymentsList" aria-live="polite"></div>
+          </section>
+
+          <section class="panel-grid debt-section" id="debts">
+            <section class="panel debt-summary-panel">
+              <div class="panel-header">
+                <div><p class="eyebrow">ORGANIZA TUS PRÉSTAMOS</p><h2>Pagos y deudas</h2></div>
+              </div>
+              <p class="section-description">Registra cada deuda y anota cuánto de cada pago va a capital y cuánto a intereses o cargos. Cada pago también queda como gasto.</p>
+              <div class="debt-total-summary"><span>Saldo total pendiente</span><strong id="debtTotalValue">S/ 0.00</strong><small id="debtCountLabel">0 deudas pendientes</small></div>
+              <div id="debtsList" class="debts-list" aria-live="polite"></div>
+              <p class="premium-feature-notice" id="debtUpgradeNotice" hidden>Registrar préstamos y pagos de deuda requiere un plan Mensual o Anual. <a href="#subscriptionPlans">Ver planes</a></p>
+              <h3>Historial de pagos</h3>
+              <div id="debtPaymentsList" class="dashboard-compact-list" aria-live="polite"></div>
+            </section>
+            <section class="panel debt-form-panel">
+              <div class="panel-header"><div><p class="eyebrow">NUEVA DEUDA</p><h2>Registrar préstamo</h2></div></div>
+              <form id="debtForm">
+                <div class="field-row"><label for="debtNameInput">Nombre del préstamo</label><input id="debtNameInput" maxlength="80" placeholder="Ej. Préstamo del auto" required /></div>
+                <div class="field-row"><label for="debtLenderInput">Banco o entidad</label><input id="debtLenderInput" maxlength="100" placeholder="Ej. Banco o cooperativa" required /></div>
+                <div class="field-row two-cols">
+                  <div><label for="debtAmountInput">Saldo inicial</label><input id="debtAmountInput" type="number" min="0.01" step="0.01" required /></div>
+                  <div><label for="debtCurrencyInput">Moneda</label><select id="debtCurrencyInput"><option value="PEN">Soles (PEN)</option><option value="USD">Dólares (USD)</option><option value="EUR">Euros (EUR)</option></select></div>
+                </div>
+                <div class="field-row" id="debtExchangeRateField" hidden>
+                  <label for="debtExchangeRateInput">Tipo de cambio a moneda principal</label>
+                  <input id="debtExchangeRateInput" type="number" min="0.000001" max="100000" step="0.000001" />
+                  <span class="field-hint" id="debtExchangeRateHint"></span>
+                </div>
+                <button class="button button-primary wide" type="submit">Guardar deuda</button>
+              </form>
+            </section>
+          </section>
+          <section class="panel payment-form-panel">
+            <div class="panel-header">
+              <div><p class="eyebrow">NUEVO RECORDATORIO</p><h2>Programar un pago</h2></div>
+            </div>
+            <p class="section-description">Registra tarjetas, servicios, alquiler u otros pagos. Finanza no realiza el pago por ti.</p>
+            <form id="paymentForm">
+              <div class="field-row">
+                <label for="paymentNameInput">Nombre del pago</label>
+                <input id="paymentNameInput" maxlength="80" placeholder="Ej. Tarjeta, alquiler, electricidad" required />
+              </div>
+              <div class="field-row">
+                <label for="paymentCategoryInput">Categoría</label>
+                <select id="paymentCategoryInput" required></select>
+              </div>
+              <div class="field-row two-cols">
+                <div><label for="paymentAmountInput">Monto</label><input id="paymentAmountInput" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0.00" required /></div>
+                <div><label for="paymentCurrencyInput">Moneda</label><select id="paymentCurrencyInput"><option value="PEN">Soles (PEN)</option><option value="USD">Dólares (USD)</option><option value="EUR">Euros (EUR)</option></select></div>
+              </div>
+              <div class="field-row" id="paymentExchangeRateField" hidden>
+                <label for="paymentExchangeRateInput">Tipo de cambio a moneda principal</label>
+                <input id="paymentExchangeRateInput" type="number" min="0.000001" max="100000" step="0.000001" inputmode="decimal" placeholder="Ej. 3.75" />
+                <span class="field-hint" id="paymentExchangeRateHint"></span>
+              </div>
+              <div class="field-row two-cols">
+                <div><label for="paymentDueDateInput">Próximo vencimiento</label><input id="paymentDueDateInput" type="date" required /></div>
+                <div><label for="paymentRecurrenceInput">Se repite</label><select id="paymentRecurrenceInput"><option value="monthly">Cada mes</option><option value="yearly">Cada año</option><option value="once">Una sola vez</option></select></div>
+              </div>
+              <div class="field-row">
+                <label for="paymentReminderTimeInput">Hora del recordatorio</label>
+                <input id="paymentReminderTimeInput" type="time" value="09:00" required />
+                <span class="field-hint">Los avisos por correo requieren SMTP y la tarea programada del servidor. Se envían un día antes y el día del vencimiento.</span>
+              </div>
+              <button class="button button-primary wide" type="submit">Guardar recordatorio</button>
+            </form>
+          </section>
         </section>
 
         <section class="panel-grid" id="capture">
@@ -252,15 +395,39 @@
             </form>
           </section>
 
-          <section class="panel budget-panel">
-            <div class="panel-header">
-              <div><p class="eyebrow">ESTE MES</p><h2>Gasto por categoría</h2></div>
-            </div>
-            <div id="budgetList" class="budget-list" aria-live="polite"></div>
-          </section>
         </section>
 
         <section class="tools-grid" id="planning" aria-label="Categorías y planificación">
+          <section class="panel plan-management-panel" id="subscriptionPlans">
+            <div class="panel-header"><div><p class="eyebrow">TU CUENTA</p><h2>Plan y suscripción</h2></div></div>
+            <p id="currentPlanSummary" class="section-description" aria-live="polite"></p>
+            <div id="planCards" class="plan-cards" aria-live="polite"></div>
+            <form id="planPaymentForm" class="plan-payment-form" hidden>
+              <h3 id="selectedPlanHeading">Solicitar plan</h3>
+              <input id="selectedPlanPeriod" type="hidden" />
+              <div id="planPaymentInstructions" class="plan-payment-instructions"></div>
+              <div class="field-row">
+                <label for="planPaymentMethodInput">Cómo realizaste el pago</label>
+                <select id="planPaymentMethodInput" required>
+                  <option value="yape">Yape</option>
+                  <option value="transfer">Transferencia bancaria</option>
+                </select>
+              </div>
+              <div class="field-row"><label for="planPaymentReferenceInput">Número de operación o referencia</label><input id="planPaymentReferenceInput" maxlength="120" required /></div>
+              <div class="button-row"><button class="button button-primary" type="submit">Enviar solicitud</button><button class="button button-quiet" id="cancelPlanRequestButton" type="button">Cancelar</button></div>
+            </form>
+          </section>
+          <section class="panel emergency-fund-panel">
+            <div class="panel-header"><div><p class="eyebrow">PROTECCIÓN FINANCIERA</p><h2>Fondo de emergencia</h2></div></div>
+            <p class="section-description">La sugerencia equivale a seis meses de tus gastos promedio. Puedes ajustar el objetivo y actualizar lo que ya tienes ahorrado.</p>
+            <form id="emergencyFundForm">
+              <div class="field-row two-cols">
+                <div><label for="emergencyTargetInput">Meta (<span class="base-currency-label">PEN</span>)</label><input id="emergencyTargetInput" type="number" min="0.01" step="0.01" required /></div>
+                <div><label for="emergencyCurrentInput">Ahorrado (<span class="base-currency-label">PEN</span>)</label><input id="emergencyCurrentInput" type="number" min="0" step="0.01" required /></div>
+              </div>
+              <button class="button button-primary" type="submit">Guardar fondo</button>
+            </form>
+          </section>
           <section class="panel categories-panel">
             <div class="panel-header">
               <div><p class="eyebrow">ORGANIZA</p><h2>Tus categorías</h2></div>
@@ -289,6 +456,7 @@
               <div class="field-row"><label for="goalDateInput">Fecha objetivo</label><input id="goalDateInput" name="goalDate" type="date" required /></div>
               <button class="button button-primary wide" type="submit">Guardar meta</button>
             </form>
+            <p class="premium-feature-notice" id="goalUpgradeNotice" hidden>El plan Gratis incluye una meta de ahorro. Los planes Mensual y Anual permiten crear más. <a href="#subscriptionPlans">Ver planes</a></p>
           </article>
         </section>
 
@@ -368,6 +536,28 @@
                 <input id="groqApiKeyInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" />
               </div>
               <p class="section-description" id="aiProviderStatus" aria-live="polite"></p>
+              <h3>Planes y pagos manuales</h3>
+              <p class="section-description">Configura los datos que verán los usuarios al pagar por Yape o transferencia. Verifica los pagos manualmente antes de aprobarlos.</p>
+              <div class="field-row two-cols">
+                <div><label for="yapeNumberInput">Número de Yape</label><input id="yapeNumberInput" maxlength="40" /></div>
+                <div><label for="yapeNameInput">Titular de Yape</label><input id="yapeNameInput" maxlength="100" /></div>
+              </div>
+              <div class="field-row"><label for="bankAccountsInput">Cuentas bancarias e instrucciones</label><textarea id="bankAccountsInput" maxlength="2000" rows="3" placeholder="Banco, titular, número de cuenta y CCI"></textarea></div>
+              <h3>Pasarelas (credenciales cifradas)</h3>
+              <p class="section-description">Puedes registrar credenciales de Culqi, Mercado Pago y PayPal. El cobro automático requiere completar la integración de checkout y webhooks; por ahora las solicitudes se revisan manualmente.</p>
+              <div class="field-row two-cols">
+                <div><label for="culqiPublicKeyInput">Culqi · clave pública</label><input id="culqiPublicKeyInput" maxlength="500" /></div>
+                <div><label for="culqiSecretInput">Culqi · clave secreta</label><input id="culqiSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" /></div>
+              </div>
+              <div class="field-row two-cols">
+                <div><label for="mercadoPagoPublicKeyInput">Mercado Pago · clave pública</label><input id="mercadoPagoPublicKeyInput" maxlength="500" /></div>
+                <div><label for="mercadoPagoSecretInput">Mercado Pago · access token</label><input id="mercadoPagoSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" /></div>
+              </div>
+              <div class="field-row two-cols">
+                <div><label for="paypalClientIdInput">PayPal · client ID</label><input id="paypalClientIdInput" maxlength="500" /></div>
+                <div><label for="paypalSecretInput">PayPal · client secret</label><input id="paypalSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" /></div>
+              </div>
+              <p id="gatewayStatus" class="section-description" aria-live="polite"></p>
               <h3>Servidor de correo SMTP</h3>
               <p class="section-description">La contraseña se cifra en el servidor y nunca se muestra aquí. Déjala vacía para conservarla.</p>
               <div class="field-row two-cols">
@@ -421,6 +611,8 @@
               <button class="button button-primary" type="submit">Asignar</button>
             </form>
             <div id="subscriptionAssignmentsList" class="admin-record-list" aria-live="polite"></div>
+            <h3>Solicitudes de planes</h3>
+            <div id="planPaymentRequestsList" class="admin-record-list" aria-live="polite"></div>
           </section>
         </section>
         <footer class="page-footer">Hecho para entender mejor tu dinero. <span id="publicContactEmail" hidden></span><a href="https://softhard.pe" target="_blank" rel="noopener noreferrer">SoftHard Peru</a></footer>
@@ -482,10 +674,11 @@
       </div>
     </dialog>
     <nav class="mobile-nav" aria-label="Navegación móvil" hidden>
-      <a href="#overview"><span aria-hidden="true">⌂</span>Resumen</a>
-      <a href="#capture"><span aria-hidden="true">＋</span>Agregar</a>
-      <a href="#transactions"><span aria-hidden="true">↕</span>Movimientos</a>
-      <a href="#goals"><span aria-hidden="true">◎</span>Metas</a>
+      <a href="#overview"><span class="mobile-nav-icon" aria-hidden="true">⌂</span><span class="mobile-nav-label">Resumen</span></a>
+      <a href="#transactions"><span class="mobile-nav-icon" aria-hidden="true">↕</span><span class="mobile-nav-label">Movimientos</span></a>
+      <a class="mobile-nav-add" href="#capture"><span class="mobile-nav-icon" aria-hidden="true">＋</span><span class="mobile-nav-label">Agregar</span></a>
+      <a href="#payments"><span class="mobile-nav-icon" aria-hidden="true">◷</span><span class="mobile-nav-label">Agenda</span></a>
+      <a href="#planning"><span class="mobile-nav-icon" aria-hidden="true">⚙</span><span class="mobile-nav-label">Configurar</span></a>
     </nav>
     <script src="api-config.js"></script>
     <script src="app.bundle.js"></script>

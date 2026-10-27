@@ -41,7 +41,7 @@ El archivo SQLite se crea al primer uso. Haz respaldos consistentes del archivo 
 3. Retira `FINANZA_MASTER_SETUP_CODE` de la configuración del servidor inmediatamente después de completar la instalación. El API vuelve a rechazar cualquier intento de instalación tras el primer uso.
 4. Las cuentas creadas desde Administración siempre son cuentas de cliente; no se puede promover una cuenta de cliente a maestra. Desactivar una cuenta o cambiar su contraseña revoca sus sesiones.
 5. Si guardas SMTP desde el panel, la contraseña se cifra con AES-256-GCM. Mantén `FINANZA_SETTINGS_ENCRYPTION_KEY` como secreto estable y respaldado de forma independiente: perderlo impide descifrar la contraseña guardada. Si no vas a administrar SMTP desde el panel, puedes continuar configurándolo solo con variables de entorno.
-6. La cuenta maestra puede administrar cuentas, marca, correo, sugerencias y opciones/asignaciones manuales de suscripción. Las suscripciones no procesan pagos.
+6. La cuenta maestra puede administrar cuentas, marca, correo, sugerencias y suscripciones. Los planes Gratis, Mensual (S/ 15) y Anual (S/ 150) se activan después de verificar el correo; la prueba del plan Mensual dura 10 días. Los pagos por Yape o transferencia requieren revisión y aprobación manual. Las credenciales de Culqi, Mercado Pago y PayPal se almacenan cifradas, pero no activan cobros automáticos: todavía se requiere integrar checkout y webhooks.
 7. El servidor necesita permiso de escritura en `uploads/` para guardar imágenes de marca. El API acepta únicamente PNG, JPG y WebP de hasta 2 MB y genera nombres aleatorios; bloquea la ejecución de scripts en esa carpeta. En Nginx configura una regla equivalente.
 8. Para habilitar el registro con foto y voz, configura una o ambas claves (Gemini o Groq) desde **Administración → Configuración**, elige el proveedor activo y asegúrate de tener habilitados `curl` y `fileinfo` en PHP. La clave guardada en el panel se cifra con `FINANZA_SETTINGS_ENCRYPTION_KEY`; el usuario maestro tiene acceso sin suscripción. Los clientes ven la oferta Finanza Pro de S/ 10 mensuales; después de pagar por el medio que indique el administrador, solicitan activación. Desde **Opciones y suscripciones**, el maestro revisa las solicitudes y confirma manualmente el pago para habilitar 30 días; la renovación mensual también es manual, no hay cobro automático. El plan de IA se crea automáticamente con la característica `Registro inteligente con IA`. El navegador transcribe la voz cuando admite dictado; Finanza envía a Gemini o Groq la foto comprimida o el texto transcrito, no guarda esos archivos y exige que el usuario revise el movimiento antes de guardarlo. Groq usa el modelo multimodal `qwen/qwen3.8-27b`.
 9. En **Administración → Configuración → Moneda principal**, elige PEN, USD o EUR. Es la moneda predeterminada de movimientos y metas y la unidad de los resúmenes para todas las cuentas. Los registros anteriores conservan su moneda y no se convierten; al cambiar la moneda principal, los datos históricos en otra moneda se mantienen visibles y no se mezclan en los nuevos totales. Los movimientos ingresados en otra moneda requieren el tipo de cambio expresado en unidades de la moneda principal por unidad extranjera.
@@ -55,3 +55,21 @@ El bundle y los recursos Android se regeneran con:
 ```sh
 npm run sync:android
 ```
+
+## Recordatorios de pagos
+
+La agenda envía un correo un día antes y el día del vencimiento, a la hora local elegida al programar cada pago. Para que los avisos se envíen aunque nadie tenga la app abierta, configura una tarea cron en el hosting que ejecute el proceso cada cinco minutos:
+
+```sh
+*/5 * * * * /usr/bin/php /ruta/absoluta/finanza/api/index.php send-payment-reminders
+```
+
+El proceso usa la misma base de datos y configuración privada que el API, incluido SMTP. Revisa el registro de errores PHP si el proceso informa fallos de envío. En Windows/XAMPP, configura una tarea del Programador de tareas con `C:\xampp\php\php.exe` y como argumentos la ruta absoluta a `api\index.php send-payment-reminders`.
+
+Para el resumen diario por correo (pagos vencidos, de hoy y de los próximos 7 días), programa también el comando siguiente cada cinco minutos. El proceso envía una sola vez por día cuando alcanza las 7:00 a. m. en la zona horaria del usuario; la hora efectiva depende de la frecuencia del cron y puede retrasarse hasta cinco minutos. Solo se envía a cuentas con un plan que incluya alertas por correo.
+
+```sh
+*/5 * * * * /usr/bin/php /ruta/absoluta/finanza/api/index.php send-daily-payment-alerts
+```
+
+Los planes Mensual y Anual habilitan agenda y deudas, alertas por correo, presupuestos y reportes. La cuenta Gratis conserva los movimientos, el resumen y una meta de ahorro; puede consultar la información previa, pero no crear o modificar funciones Pro.

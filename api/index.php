@@ -12,6 +12,7 @@ const RESET_CODE_LIFETIME = 900;
 const EMAIL_VERIFICATION_LIFETIME = 86400;
 const ACCESS_TOKEN_LIFETIME = 2592000;
 const MAX_REQUEST_BYTES = 65536;
+const TERMS_VERSION = '1.0-2026-10-27';
 
 final class ApiError extends RuntimeException
 {
@@ -98,6 +99,9 @@ function database(): PDO
             is_active INTEGER NOT NULL DEFAULT 1,
             email_verified INTEGER NOT NULL DEFAULT 1,
             onboarding_completed INTEGER NOT NULL DEFAULT 1,
+            timezone TEXT NOT NULL DEFAULT \'UTC\',
+            terms_version TEXT NOT NULL DEFAULT \'\',
+            terms_accepted_at INTEGER,
             created_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -158,6 +162,96 @@ function database(): PDO
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS goals_user_id ON goals(user_id);
+        CREATE TABLE IF NOT EXISTS scheduled_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            amount REAL NOT NULL CHECK(amount > 0),
+            currency TEXT NOT NULL,
+            exchange_rate REAL NOT NULL CHECK(exchange_rate > 0),
+            base_currency TEXT NOT NULL,
+            recurrence TEXT NOT NULL CHECK(recurrence IN (\'once\', \'monthly\', \'yearly\')),
+            anchor_month INTEGER NOT NULL CHECK(anchor_month BETWEEN 1 AND 12),
+            anchor_day INTEGER NOT NULL CHECK(anchor_day BETWEEN 1 AND 31),
+            reminder_time TEXT NOT NULL,
+            timezone TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS scheduled_payments_user ON scheduled_payments(user_id, active);
+        CREATE TABLE IF NOT EXISTS payment_occurrences (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_id INTEGER NOT NULL REFERENCES scheduled_payments(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            due_date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT \'pending\' CHECK(status IN (\'pending\', \'paid\')),
+            transaction_id INTEGER,
+            created_at INTEGER NOT NULL,
+            paid_at INTEGER,
+            UNIQUE(payment_id, due_date)
+        );
+        CREATE INDEX IF NOT EXISTS payment_occurrences_user_due ON payment_occurrences(user_id, status, due_date);
+        CREATE TABLE IF NOT EXISTS debts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            lender TEXT NOT NULL,
+            original_amount REAL NOT NULL CHECK(original_amount > 0),
+            balance REAL NOT NULL CHECK(balance >= 0),
+            currency TEXT NOT NULL,
+            exchange_rate REAL NOT NULL CHECK(exchange_rate > 0),
+            base_currency TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS debts_user ON debts(user_id, balance);
+        CREATE TABLE IF NOT EXISTS debt_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            debt_id INTEGER NOT NULL REFERENCES debts(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            principal_amount REAL NOT NULL CHECK(principal_amount >= 0),
+            charges_amount REAL NOT NULL CHECK(charges_amount >= 0),
+            currency TEXT NOT NULL,
+            paid_date TEXT NOT NULL,
+            transaction_id INTEGER,
+            created_at INTEGER NOT NULL,
+            CHECK(principal_amount + charges_amount > 0)
+        );
+        CREATE INDEX IF NOT EXISTS debt_payments_user ON debt_payments(user_id, paid_date DESC);
+        CREATE TABLE IF NOT EXISTS budgets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            category TEXT NOT NULL COLLATE NOCASE,
+            amount REAL NOT NULL CHECK(amount > 0),
+            currency TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(user_id, category)
+        );
+        CREATE TABLE IF NOT EXISTS emergency_funds (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            target_amount REAL NOT NULL CHECK(target_amount > 0),
+            current_amount REAL NOT NULL CHECK(current_amount >= 0),
+            currency TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS daily_payment_alerts (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            local_date TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN (\'processing\', \'sent\', \'failed\')),
+            created_at INTEGER NOT NULL,
+            sent_at INTEGER,
+            PRIMARY KEY(user_id, local_date)
+        );
+        CREATE TABLE IF NOT EXISTS payment_reminders (
+            occurrence_id INTEGER NOT NULL REFERENCES payment_occurrences(id) ON DELETE CASCADE,
+            reminder_type TEXT NOT NULL CHECK(reminder_type IN (\'day_before\', \'due_day\')),
+            status TEXT NOT NULL CHECK(status IN (\'processing\', \'sent\', \'failed\')),
+            created_at INTEGER NOT NULL,
+            sent_at INTEGER,
+            PRIMARY KEY(occurrence_id, reminder_type)
+        );
         CREATE TABLE IF NOT EXISTS app_settings (
             setting_key TEXT PRIMARY KEY,
             setting_value TEXT NOT NULL
@@ -179,6 +273,10 @@ function database(): PDO
             name TEXT NOT NULL UNIQUE COLLATE NOCASE,
             description TEXT NOT NULL DEFAULT \'\',
             features_json TEXT NOT NULL DEFAULT \'[]\',
+            billing_period TEXT NOT NULL DEFAULT \'custom\',
+            price_amount REAL NOT NULL DEFAULT 0,
+            price_currency TEXT NOT NULL DEFAULT \'PEN\',
+            trial_days INTEGER NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1,
             created_at INTEGER NOT NULL
         );
@@ -189,6 +287,7 @@ function database(): PDO
             status TEXT NOT NULL DEFAULT \'active\' CHECK(status IN (\'active\', \'paused\', \'cancelled\')),
             starts_at TEXT NOT NULL,
             ends_at TEXT,
+            is_trial INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS subscription_assignments_user ON subscription_assignments(user_id);
@@ -201,7 +300,18 @@ function database(): PDO
         );
         CREATE INDEX IF NOT EXISTS ai_subscription_requests_status ON ai_subscription_requests(status, requested_at DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS ai_subscription_requests_one_pending
-            ON ai_subscription_requests(user_id) WHERE status = \'pending\''
+            ON ai_subscription_requests(user_id) WHERE status = \'pending\';
+        CREATE TABLE IF NOT EXISTS plan_payment_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            option_id INTEGER NOT NULL REFERENCES subscription_options(id),
+            payment_method TEXT NOT NULL,
+            payment_reference TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT \'pending\' CHECK(status IN (\'pending\', \'approved\', \'rejected\')),
+            requested_at INTEGER NOT NULL,
+            processed_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS plan_payment_requests_status ON plan_payment_requests(status, requested_at DESC)'
     );
     $userColumns = array_column($connection->query('PRAGMA table_info(users)')->fetchAll(), 'name');
     if (!in_array('role', $userColumns, true)) {
@@ -215,6 +325,99 @@ function database(): PDO
     }
     if (!in_array('onboarding_completed', $userColumns, true)) {
         $connection->exec('ALTER TABLE users ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!in_array('terms_version', $userColumns, true)) {
+        $connection->exec("ALTER TABLE users ADD COLUMN terms_version TEXT NOT NULL DEFAULT ''");
+    }
+    if (!in_array('terms_accepted_at', $userColumns, true)) {
+        $connection->exec('ALTER TABLE users ADD COLUMN terms_accepted_at INTEGER');
+    }
+    if (!in_array('timezone', $userColumns, true)) {
+        $connection->exec("ALTER TABLE users ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'");
+    }
+    if (!in_array('trial_started_at', $userColumns, true)) {
+        $connection->exec('ALTER TABLE users ADD COLUMN trial_started_at TEXT');
+    }
+    $subscriptionOptionColumns = array_column($connection->query('PRAGMA table_info(subscription_options)')->fetchAll(), 'name');
+    if (!in_array('billing_period', $subscriptionOptionColumns, true)) {
+        $connection->exec("ALTER TABLE subscription_options ADD COLUMN billing_period TEXT NOT NULL DEFAULT 'custom'");
+    }
+    if (!in_array('price_amount', $subscriptionOptionColumns, true)) {
+        $connection->exec('ALTER TABLE subscription_options ADD COLUMN price_amount REAL NOT NULL DEFAULT 0');
+    }
+    if (!in_array('price_currency', $subscriptionOptionColumns, true)) {
+        $connection->exec("ALTER TABLE subscription_options ADD COLUMN price_currency TEXT NOT NULL DEFAULT 'PEN'");
+    }
+    if (!in_array('trial_days', $subscriptionOptionColumns, true)) {
+        $connection->exec('ALTER TABLE subscription_options ADD COLUMN trial_days INTEGER NOT NULL DEFAULT 0');
+    }
+    $assignmentColumns = array_column($connection->query('PRAGMA table_info(subscription_assignments)')->fetchAll(), 'name');
+    if (!in_array('is_trial', $assignmentColumns, true)) {
+        $connection->exec('ALTER TABLE subscription_assignments ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0');
+    }
+    $connection->exec(
+        "INSERT OR IGNORE INTO subscription_options (name, description, features_json, billing_period, price_amount, price_currency, trial_days, active, created_at)
+         VALUES
+         ('Gratis', 'Registro financiero básico, resumen y una meta de ahorro.', '[]', 'free', 0, 'PEN', 0, 1, strftime('%s','now')),
+         ('Mensual', 'Funciones Pro con prueba de 10 días; luego S/ 15 cada mes.', '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]', 'monthly', 15, 'PEN', 10, 1, strftime('%s','now')),
+         ('Anual', 'Funciones Pro por S/ 150 al año.', '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]', 'yearly', 150, 'PEN', 10, 1, strftime('%s','now'))"
+    );
+    $connection->exec("UPDATE subscription_options SET trial_days = 0 WHERE billing_period = 'yearly'");
+    $monthlyPlan = $connection->query(
+        "SELECT id, trial_days FROM subscription_options WHERE billing_period = 'monthly' AND active = 1 LIMIT 1"
+    )->fetch();
+    if ($monthlyPlan && (int) $monthlyPlan['trial_days'] > 0) {
+        $trialStart = (new DateTimeImmutable('today'))->format('Y-m-d');
+        $trialEnd = (new DateTimeImmutable($trialStart))
+            ->modify('+' . ((int) $monthlyPlan['trial_days'] - 1) . ' days')
+            ->format('Y-m-d');
+        $connection->beginTransaction();
+        try {
+            $connection->prepare(
+                "UPDATE users SET trial_started_at = (
+                     SELECT MIN(subscription_assignments.starts_at)
+                     FROM subscription_assignments
+                     JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
+                     WHERE subscription_assignments.user_id = users.id
+                       AND subscription_options.billing_period IN ('monthly', 'yearly')
+                 )
+                 WHERE role = 'user' AND trial_started_at IS NULL
+                   AND EXISTS (
+                     SELECT 1 FROM subscription_assignments
+                     JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
+                     WHERE subscription_assignments.user_id = users.id
+                       AND subscription_options.billing_period IN ('monthly', 'yearly')
+                   )"
+            )->execute();
+            $connection->prepare(
+                "INSERT INTO subscription_assignments
+                    (user_id, option_id, status, starts_at, ends_at, is_trial, created_at)
+                 SELECT users.id, ?, 'active', ?, ?, 1, ?
+                 FROM users
+                 WHERE users.role = 'user' AND users.is_active = 1 AND users.email_verified = 1
+                   AND users.trial_started_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM subscription_assignments
+                     JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
+                     WHERE subscription_assignments.user_id = users.id
+                       AND subscription_options.billing_period IN ('monthly', 'yearly')
+                   )"
+            )->execute([(int) $monthlyPlan['id'], $trialStart, $trialEnd, time()]);
+            $connection->prepare(
+                "UPDATE users SET trial_started_at = ?
+                 WHERE role = 'user' AND is_active = 1 AND email_verified = 1 AND trial_started_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM subscription_assignments
+                     JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
+                     WHERE subscription_assignments.user_id = users.id
+                       AND subscription_options.billing_period IN ('monthly', 'yearly')
+                   )"
+            )->execute([$trialStart]);
+            $connection->commit();
+        } catch (Throwable $error) {
+            $connection->rollBack();
+            throw $error;
+        }
     }
     $transactionColumns = array_column($connection->query('PRAGMA table_info(transactions)')->fetchAll(), 'name');
     if (!in_array('currency', $transactionColumns, true)) {
@@ -466,6 +669,208 @@ function saveEmailVerification(PDO $db, int $userId, string $email): void
     }
 }
 
+function claimPaymentReminder(PDO $db, int $occurrenceId, string $reminderType): bool
+{
+    $now = time();
+    $statement = $db->prepare(
+        'INSERT INTO payment_reminders (occurrence_id, reminder_type, status, created_at)
+         VALUES (?, ?, \'processing\', ?)
+         ON CONFLICT(occurrence_id, reminder_type) DO UPDATE SET
+           status = \'processing\', created_at = excluded.created_at, sent_at = NULL
+         WHERE payment_reminders.status = \'failed\'
+            OR (payment_reminders.status = \'processing\' AND payment_reminders.created_at <= ?)'
+    );
+    $statement->execute([$occurrenceId, $reminderType, $now, $now - 900]);
+    return $statement->rowCount() === 1;
+}
+
+function sendScheduledPaymentReminders(): array
+{
+    $db = database();
+    $statement = $db->query(
+        "SELECT occurrences.id AS occurrence_id, occurrences.due_date, payments.title, payments.amount,
+                payments.currency, payments.reminder_time, payments.timezone, users.id AS user_id,
+                users.role, users.email
+         FROM payment_occurrences AS occurrences
+         JOIN scheduled_payments AS payments ON payments.id = occurrences.payment_id
+         JOIN users ON users.id = occurrences.user_id
+         WHERE occurrences.status = 'pending' AND payments.active = 1 AND users.is_active = 1
+           AND users.email_verified = 1
+         ORDER BY occurrences.due_date ASC"
+    );
+    $sent = 0;
+    $failed = 0;
+
+    foreach ($statement->fetchAll() as $payment) {
+        try {
+            if (!userHasSubscriptionFeature([
+                'id' => (int) $payment['user_id'],
+                'role' => $payment['role']
+            ], 'Alertas por correo')) {
+                continue;
+            }
+            $timezone = new DateTimeZone($payment['timezone']);
+            $now = new DateTimeImmutable('now', $timezone);
+            $dueDate = DateTimeImmutable::createFromFormat('!Y-m-d', $payment['due_date'], $timezone);
+            if (!$dueDate) {
+                throw new RuntimeException('Invalid payment due date.');
+            }
+
+            $reminderType = null;
+            if ($dueDate->format('Y-m-d') === $now->format('Y-m-d')) {
+                $reminderType = 'due_day';
+            } elseif ($dueDate->modify('-1 day')->format('Y-m-d') === $now->format('Y-m-d')) {
+                $reminderType = 'day_before';
+            }
+            if ($reminderType === null || $now->format('H:i') < $payment['reminder_time']) {
+                continue;
+            }
+
+            $occurrenceId = (int) $payment['occurrence_id'];
+            if (!claimPaymentReminder($db, $occurrenceId, $reminderType)) {
+                continue;
+            }
+
+            $safeTitle = htmlspecialchars($payment['title'], ENT_QUOTES, 'UTF-8');
+            $dueDateText = $dueDate->format('d/m/Y');
+            $when = $reminderType === 'due_day' ? 'vence hoy' : 'vence mañana';
+            $amount = number_format((float) $payment['amount'], 2) . ' ' . $payment['currency'];
+            try {
+                sendAccountEmail(
+                    $payment['email'],
+                    'Recordatorio de pago: ' . $payment['title'],
+                    '<p>Te recordamos que <strong>' . $safeTitle . '</strong> ' . $when .
+                        ' (' . $dueDateText . ').</p><p>Monto registrado: ' . $amount .
+                        '.</p><p>Abre Finanza para consultar tu agenda y marcarlo como pagado.</p>',
+                    'Recordatorio: ' . $payment['title'] . ' ' . $when . ' (' . $dueDateText .
+                        '). Monto registrado: ' . $amount . '.'
+                );
+                $db->prepare(
+                    "UPDATE payment_reminders SET status = 'sent', sent_at = ? WHERE occurrence_id = ? AND reminder_type = ?"
+                )->execute([time(), $occurrenceId, $reminderType]);
+                $sent++;
+            } catch (Throwable $error) {
+                $db->prepare(
+                    "UPDATE payment_reminders SET status = 'failed' WHERE occurrence_id = ? AND reminder_type = ?"
+                )->execute([$occurrenceId, $reminderType]);
+                error_log('Finanza payment reminder error: ' . $error->getMessage());
+                $failed++;
+            }
+        } catch (Throwable $error) {
+            error_log('Finanza payment reminder error: ' . $error->getMessage());
+            $failed++;
+        }
+    }
+
+    return ['sent' => $sent, 'failed' => $failed];
+}
+
+function sendDailyPaymentAlerts(): array
+{
+    $db = database();
+    $users = $db->query(
+        "SELECT DISTINCT users.id, users.email, users.timezone, users.role
+         FROM users
+         JOIN scheduled_payments ON scheduled_payments.user_id = users.id AND scheduled_payments.active = 1
+         JOIN payment_occurrences ON payment_occurrences.payment_id = scheduled_payments.id
+             AND payment_occurrences.status = 'pending'
+         WHERE users.is_active = 1 AND users.email_verified = 1"
+    )->fetchAll();
+    $sent = 0;
+    $failed = 0;
+
+    foreach ($users as $user) {
+        try {
+            if (!userHasSubscriptionFeature([
+                'id' => (int) $user['id'],
+                'role' => $user['role']
+            ], 'Alertas por correo')) {
+                continue;
+            }
+            $timezone = new DateTimeZone($user['timezone']);
+            $now = new DateTimeImmutable('now', $timezone);
+            if ($now->format('H:i') < '07:00') {
+                continue;
+            }
+            $today = $now->format('Y-m-d');
+            $claim = $db->prepare(
+                "INSERT INTO daily_payment_alerts (user_id, local_date, status, created_at)
+                 VALUES (?, ?, 'processing', ?)
+                 ON CONFLICT(user_id, local_date) DO UPDATE SET
+                   status = 'processing', created_at = excluded.created_at, sent_at = NULL
+                 WHERE daily_payment_alerts.status = 'failed'
+                    OR (daily_payment_alerts.status = 'processing' AND daily_payment_alerts.created_at <= ?)"
+            );
+            $claim->execute([(int) $user['id'], $today, time(), time() - 900]);
+            if ($claim->rowCount() !== 1) {
+                continue;
+            }
+
+            $payments = $db->prepare(
+                "SELECT payments.title, payments.amount, payments.currency, occurrences.due_date
+                 FROM scheduled_payments AS payments
+                 JOIN payment_occurrences AS occurrences ON occurrences.payment_id = payments.id
+                 WHERE payments.user_id = ? AND payments.active = 1 AND occurrences.status = 'pending'
+                   AND occurrences.due_date <= ?
+                 ORDER BY occurrences.due_date ASC, payments.title COLLATE NOCASE ASC"
+            );
+            $throughDate = $now->modify('+7 days')->format('Y-m-d');
+            $payments->execute([(int) $user['id'], $throughDate]);
+            $rows = $payments->fetchAll();
+            if (!$rows) {
+                $db->prepare(
+                    "DELETE FROM daily_payment_alerts WHERE user_id = ? AND local_date = ? AND status = 'processing'"
+                )->execute([(int) $user['id'], $today]);
+                continue;
+            }
+
+            $items = [];
+            foreach ($rows as $payment) {
+                $dueDate = DateTimeImmutable::createFromFormat('!Y-m-d', $payment['due_date'], $timezone);
+                $status = $payment['due_date'] < $today
+                    ? 'Vencido'
+                    : ($payment['due_date'] === $today ? 'Vence hoy' : 'Próximo');
+                $items[] = '<li><strong>' . htmlspecialchars($payment['title'], ENT_QUOTES, 'UTF-8') .
+                    '</strong>: ' . $status . ' (' . $dueDate->format('d/m/Y') . ') · ' .
+                    number_format((float) $payment['amount'], 2) . ' ' .
+                    htmlspecialchars($payment['currency'], ENT_QUOTES, 'UTF-8') . '</li>';
+            }
+            $html = '<p>Este es tu resumen diario de pagos pendientes (vencidos, de hoy y de los próximos 7 días):</p><ul>' .
+                implode('', $items) . '</ul><p>Abre Finanza para revisar tu agenda y actualizar los pagos.</p>';
+            $text = "Resumen diario de pagos pendientes:\n" . implode("\n", array_map(
+                static fn(array $payment): string => $payment['title'] . ' · ' . $payment['due_date'] . ' · ' .
+                    number_format((float) $payment['amount'], 2) . ' ' . $payment['currency'],
+                $rows
+            ));
+
+            try {
+                sendAccountEmail(
+                    $user['email'],
+                    'Tu resumen diario de pagos pendientes',
+                    $html,
+                    $text
+                );
+                $db->prepare(
+                    "UPDATE daily_payment_alerts SET status = 'sent', sent_at = ?
+                     WHERE user_id = ? AND local_date = ?"
+                )->execute([time(), (int) $user['id'], $today]);
+                $sent++;
+            } catch (Throwable $error) {
+                $db->prepare(
+                    "UPDATE daily_payment_alerts SET status = 'failed' WHERE user_id = ? AND local_date = ?"
+                )->execute([(int) $user['id'], $today]);
+                error_log('Finanza daily payment alert error: ' . $error->getMessage());
+                $failed++;
+            }
+        } catch (Throwable $error) {
+            error_log('Finanza daily payment alert error: ' . $error->getMessage());
+            $failed++;
+        }
+    }
+
+    return ['sent' => $sent, 'failed' => $failed];
+}
+
 function validateTransaction(array $data, ?string $baseCurrency = null): array
 {
     $description = requiredString($data, 'description', 80);
@@ -490,10 +895,81 @@ function validateTransaction(array $data, ?string $baseCurrency = null): array
     return [$description, $category, $type, (float) $amount, $currency, (float) $exchangeRate, $baseCurrency, validDateString($data, 'date')];
 }
 
-function userHasAiAssistant(array $user): bool
+function validatePaymentSchedule(array $data): array
+{
+    $title = requiredString($data, 'title', 80);
+    $category = requiredString($data, 'category', 40);
+    $dueDate = validDateString($data, 'dueDate');
+    $recurrence = $data['recurrence'] ?? null;
+    if (!in_array($recurrence, ['once', 'monthly', 'yearly'], true)) {
+        throw new ApiError(422, 'Selecciona una frecuencia de pago válida.');
+    }
+
+    $reminderTime = $data['reminderTime'] ?? null;
+    if (!is_string($reminderTime) || !preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/', $reminderTime)) {
+        throw new ApiError(422, 'Selecciona una hora válida para los avisos.');
+    }
+    $timezoneName = requiredString($data, 'timezone', 64);
+    try {
+        new DateTimeZone($timezoneName);
+    } catch (Throwable $error) {
+        throw new ApiError(422, 'La zona horaria no es válida.');
+    }
+
+    [$description, $category, , $amount, $currency, $exchangeRate, $baseCurrency] = validateTransaction([
+        'description' => $title,
+        'category' => $category,
+        'type' => 'expense',
+        'amount' => $data['amount'] ?? null,
+        'currency' => $data['currency'] ?? null,
+        'exchangeRate' => $data['exchangeRate'] ?? null,
+        'date' => $dueDate
+    ]);
+    $dueDateObject = DateTimeImmutable::createFromFormat('!Y-m-d', $dueDate);
+
+    return [
+        $description,
+        $category,
+        $amount,
+        $currency,
+        $exchangeRate,
+        $baseCurrency,
+        $dueDate,
+        $recurrence,
+        (int) $dueDateObject->format('n'),
+        (int) $dueDateObject->format('j'),
+        $reminderTime,
+        $timezoneName
+    ];
+}
+
+function nextPaymentDueDate(string $dueDate, string $recurrence, int $anchorMonth, int $anchorDay): ?string
+{
+    if ($recurrence === 'once') {
+        return null;
+    }
+
+    $currentDate = DateTimeImmutable::createFromFormat('!Y-m-d', $dueDate);
+    $year = (int) $currentDate->format('Y');
+    $month = (int) $currentDate->format('n');
+    if ($recurrence === 'monthly') {
+        $firstOfMonth = $currentDate->modify('first day of next month');
+        $year = (int) $firstOfMonth->format('Y');
+        $month = (int) $firstOfMonth->format('n');
+    } else {
+        $year++;
+        $month = $anchorMonth;
+    }
+
+    $firstOfTargetMonth = DateTimeImmutable::createFromFormat('!Y-n-j', $year . '-' . $month . '-1');
+    $day = min($anchorDay, (int) $firstOfTargetMonth->format('t'));
+    return $firstOfTargetMonth->setDate($year, $month, $day)->format('Y-m-d');
+}
+
+function userSubscriptionFeatures(array $user): array
 {
     if (($user['role'] ?? '') === 'master') {
-        return true;
+        return ['Pagos y deudas', 'Alertas por correo', 'Presupuestos', 'Reportes', 'Registro inteligente con IA'];
     }
     $statement = database()->prepare(
         "SELECT subscription_options.features_json
@@ -505,13 +981,44 @@ function userHasAiAssistant(array $user): bool
     );
     $today = date('Y-m-d');
     $statement->execute([(int) $user['id'], $today, $today]);
+    $features = [];
     foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $featuresJson) {
-        $features = json_decode((string) $featuresJson, true);
-        if (is_array($features) && in_array('Registro inteligente con IA', $features, true)) {
-            return true;
+        $assignmentFeatures = json_decode((string) $featuresJson, true);
+        if (is_array($assignmentFeatures)) {
+            $features = array_merge($features, array_filter($assignmentFeatures, 'is_string'));
         }
     }
-    return false;
+    return array_values(array_unique($features));
+}
+
+function userHasSubscriptionFeature(array $user, string $feature): bool
+{
+    return in_array($feature, userSubscriptionFeatures($user), true);
+}
+
+function requireSubscriptionFeature(array $user, string $feature): void
+{
+    if (!userHasSubscriptionFeature($user, $feature)) {
+        throw new ApiError(403, 'Esta función está disponible en los planes Mensual y Anual. Revisa Plan y suscripción para actualizar.');
+    }
+}
+
+function subscriptionPeriodEnd(DateTimeImmutable $start, string $period): DateTimeImmutable
+{
+    $year = (int) $start->format('Y') + ($period === 'yearly' ? 1 : 0);
+    $month = (int) $start->format('n') + ($period === 'monthly' ? 1 : 0);
+    if ($month > 12) {
+        $year++;
+        $month = 1;
+    }
+    $firstOfMonth = DateTimeImmutable::createFromFormat('!Y-n-j', $year . '-' . $month . '-1');
+    $day = min((int) $start->format('j'), (int) $firstOfMonth->format('t'));
+    return $firstOfMonth->setDate($year, $month, $day)->modify('-1 day');
+}
+
+function userHasAiAssistant(array $user): bool
+{
+    return userHasSubscriptionFeature($user, 'Registro inteligente con IA');
 }
 
 function extractAiTransaction(array $input, int $userId): array
@@ -813,6 +1320,32 @@ function handleRequest(string $action, string $method, array $data): array
     if ($action === 'public-settings' && $method === 'GET') {
         return ['settings' => publicBranding()];
     }
+    if ($action === 'plans' && $method === 'GET') {
+        $options = $db->query(
+            "SELECT id, name, description, features_json AS featuresJson, billing_period AS billingPeriod,
+                    price_amount AS priceAmount, price_currency AS priceCurrency, trial_days AS trialDays
+             FROM subscription_options WHERE active = 1 AND billing_period IN ('free', 'monthly', 'yearly')
+             ORDER BY CASE billing_period WHEN 'free' THEN 0 WHEN 'monthly' THEN 1 ELSE 2 END"
+        )->fetchAll();
+        foreach ($options as &$option) {
+            $option['id'] = (int) $option['id'];
+            $option['priceAmount'] = (float) $option['priceAmount'];
+            $option['trialDays'] = (int) $option['trialDays'];
+            $option['features'] = json_decode($option['featuresJson'], true) ?: [];
+            unset($option['featuresJson']);
+        }
+        unset($option);
+        return ['plans' => $options, 'paymentInstructions' => [
+            'yapeNumber' => appSetting('yape_number'),
+            'yapeName' => appSetting('yape_name'),
+            'bankAccounts' => appSetting('bank_accounts'),
+            'gateways' => [
+                'culqi' => appSetting('culqi_secret_encrypted') !== '',
+                'mercadoPago' => appSetting('mercado_pago_secret_encrypted') !== '',
+                'paypal' => appSetting('paypal_secret_encrypted') !== ''
+            ]
+        ]];
+    }
     if ($action === 'setup-status' && $method === 'GET') {
         $consumed = (bool) $db->query("SELECT 1 FROM setup_state WHERE setup_key = 'master'")->fetchColumn();
         $masterExists = (int) $db->query("SELECT COUNT(*) FROM users WHERE role = 'master'")->fetchColumn() > 0;
@@ -862,16 +1395,21 @@ function handleRequest(string $action, string $method, array $data): array
         $name = requiredString($data, 'name', 80);
         $email = strtolower(requiredString($data, 'email', 254));
         $password = $data['password'] ?? null;
+        if (($data['termsAccepted'] ?? false) !== true || ($data['termsVersion'] ?? null) !== TERMS_VERSION) {
+            throw new ApiError(422, 'Debes aceptar los Términos y condiciones vigentes para crear tu cuenta.');
+        }
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !is_string($password) || strlen($password) < 12 || strlen($password) > 200) {
             throw new ApiError(422, 'Usa un correo válido y una contraseña de al menos 12 caracteres.');
         }
         enforceRateLimit('register:' . hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown'), 8, 3600);
         try {
             $statement = $db->prepare(
-                'INSERT INTO users (name, email, password_hash, email_verified, onboarding_completed, created_at)
-                 VALUES (?, ?, ?, 0, 0, ?)'
+                'INSERT INTO users
+                    (name, email, password_hash, email_verified, onboarding_completed, terms_version, terms_accepted_at, created_at)
+                 VALUES (?, ?, ?, 0, 0, ?, ?, ?)'
             );
-            $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), time()]);
+            $acceptedAt = time();
+            $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), TERMS_VERSION, $acceptedAt, $acceptedAt]);
         } catch (PDOException $error) {
             if (str_contains(strtolower($error->getMessage()), 'unique')) {
                 throw new ApiError(409, 'Ya existe una cuenta con ese correo.');
@@ -946,6 +1484,26 @@ function handleRequest(string $action, string $method, array $data): array
         try {
             $db->prepare('UPDATE users SET email_verified = 1 WHERE id = ?')
                 ->execute([(int) $verification['id']]);
+            $trialPlan = $db->query(
+                "SELECT id, trial_days FROM subscription_options
+                 WHERE billing_period = 'monthly' AND active = 1 ORDER BY id LIMIT 1"
+            )->fetch();
+            if ($trialPlan && (int) $trialPlan['trial_days'] > 0) {
+                $trialStart = (new DateTimeImmutable('today'))->format('Y-m-d');
+                $trialEnd = (new DateTimeImmutable($trialStart))
+                    ->modify('+' . ((int) $trialPlan['trial_days'] - 1) . ' days')
+                    ->format('Y-m-d');
+                $db->prepare('UPDATE users SET trial_started_at = ? WHERE id = ? AND trial_started_at IS NULL')
+                    ->execute([$trialStart, (int) $verification['id']]);
+                $db->prepare(
+                    "INSERT INTO subscription_assignments
+                        (user_id, option_id, status, starts_at, ends_at, is_trial, created_at)
+                     VALUES (?, ?, 'active', ?, ?, 1, ?)"
+                )->execute([
+                    (int) $verification['id'], (int) $trialPlan['id'],
+                    $trialStart, $trialEnd, time()
+                ]);
+            }
             $db->prepare('DELETE FROM email_verifications WHERE user_id = ?')
                 ->execute([(int) $verification['id']]);
             $db->prepare('DELETE FROM rate_limits WHERE limiter_key = ?')
@@ -1093,6 +1651,88 @@ function handleRequest(string $action, string $method, array $data): array
             'requestStatus' => $request->fetchColumn() ?: null
         ];
     }
+    if ($action === 'plan-status' && $method === 'GET') {
+        $today = date('Y-m-d');
+        $current = $db->prepare(
+            "SELECT subscription_options.name, subscription_options.billing_period AS billingPeriod,
+                    subscription_options.price_amount AS priceAmount, subscription_options.price_currency AS priceCurrency,
+                    subscription_assignments.starts_at AS startsAt, subscription_assignments.ends_at AS endsAt,
+                    subscription_assignments.is_trial AS isTrial
+             FROM subscription_assignments
+             JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
+             WHERE subscription_assignments.user_id = ? AND subscription_assignments.status = 'active'
+               AND subscription_assignments.starts_at <= ?
+               AND (subscription_assignments.ends_at IS NULL OR subscription_assignments.ends_at >= ?)
+             ORDER BY CASE WHEN subscription_options.billing_period IN ('monthly', 'yearly') THEN 0 ELSE 1 END,
+                      subscription_assignments.starts_at DESC, subscription_assignments.id DESC LIMIT 1"
+        );
+        $current->execute([$userId, $today, $today]);
+        $subscription = $current->fetch();
+        if ($subscription) {
+            $subscription['priceAmount'] = (float) $subscription['priceAmount'];
+            $subscription['isTrial'] = (bool) $subscription['isTrial'];
+        } else {
+            $free = $db->query(
+                "SELECT name, billing_period AS billingPeriod, price_amount AS priceAmount,
+                        price_currency AS priceCurrency, NULL AS startsAt, NULL AS endsAt, 0 AS isTrial
+                 FROM subscription_options WHERE billing_period = 'free' AND active = 1 LIMIT 1"
+            )->fetch();
+            $subscription = $free ?: null;
+        }
+        $pending = $db->prepare(
+            "SELECT 1 FROM plan_payment_requests WHERE user_id = ? AND status = 'pending' LIMIT 1"
+        );
+        $pending->execute([$userId]);
+        $features = userSubscriptionFeatures($user);
+        return [
+            'subscription' => $subscription,
+            'hasPendingRequest' => (bool) $pending->fetchColumn(),
+            'featureAccess' => [
+                'payments' => in_array('Pagos y deudas', $features, true),
+                'debts' => in_array('Pagos y deudas', $features, true),
+                'alerts' => in_array('Alertas por correo', $features, true),
+                'budgets' => in_array('Presupuestos', $features, true),
+                'reports' => in_array('Reportes', $features, true)
+            ]
+        ];
+    }
+    if ($action === 'plan-request' && $method === 'POST') {
+        if (($user['role'] ?? '') === 'master') {
+            throw new ApiError(403, 'La cuenta maestra no requiere un plan.');
+        }
+        $period = $data['billingPeriod'] ?? null;
+        $methodName = $data['paymentMethod'] ?? null;
+        $reference = requiredString($data, 'paymentReference', 120);
+        if (!in_array($period, ['monthly', 'yearly'], true) ||
+            !in_array($methodName, ['yape', 'transfer'], true)) {
+            throw new ApiError(422, 'Selecciona un plan y un método de pago manual válido.');
+        }
+        if ($methodName === 'yape' && appSetting('yape_number') === '' ||
+            $methodName === 'transfer' && appSetting('bank_accounts') === '') {
+            throw new ApiError(422, 'El administrador aún no configuró los datos de este método de pago.');
+        }
+        enforceRateLimit('plan-request:' . $userId, 5, 2592000);
+        $pending = $db->prepare(
+            "SELECT 1 FROM plan_payment_requests WHERE user_id = ? AND status = 'pending' LIMIT 1"
+        );
+        $pending->execute([$userId]);
+        if ($pending->fetchColumn()) {
+            throw new ApiError(409, 'Ya tienes un pago de plan pendiente de revisión.');
+        }
+        $plan = $db->prepare(
+            'SELECT id FROM subscription_options WHERE billing_period = ? AND active = 1 LIMIT 1'
+        );
+        $plan->execute([$period]);
+        $optionId = $plan->fetchColumn();
+        if ($optionId === false) {
+            throw new ApiError(404, 'Ese plan no está disponible.');
+        }
+        $db->prepare(
+            "INSERT INTO plan_payment_requests (user_id, option_id, payment_method, payment_reference, status, requested_at)
+             VALUES (?, ?, ?, ?, 'pending', ?)"
+        )->execute([$userId, (int) $optionId, $methodName, $reference, time()]);
+        return ['message' => 'Solicitud enviada. La activación se realizará cuando el administrador confirme el pago.'];
+    }
     if ($action === 'ai-subscription-request' && $method === 'POST') {
         if (($user['role'] ?? '') === 'master' || userHasAiAssistant($user)) {
             throw new ApiError(409, 'Tu cuenta ya tiene acceso al registro inteligente.');
@@ -1129,7 +1769,8 @@ function handleRequest(string $action, string $method, array $data): array
 
     $masterActions = [
         'admin-users', 'admin-settings', 'admin-upload', 'admin-suggestions',
-        'admin-subscriptions', 'admin-assignments', 'admin-ai-requests', 'admin-resend-activation'
+        'admin-subscriptions', 'admin-assignments', 'admin-ai-requests', 'admin-resend-activation',
+        'admin-plan-requests'
     ];
     if (in_array($action, $masterActions, true)) {
         requireMaster($user);
@@ -1270,7 +1911,16 @@ function handleRequest(string $action, string $method, array $data): array
                 'smtpPasswordSet' => $smtpPasswordSet,
                 'aiProvider' => appSetting('ai_provider', 'gemini'),
                 'geminiApiKeySet' => $storedGeminiKey !== '' || envValue('FINANZA_GEMINI_API_KEY') !== '',
-                'groqApiKeySet' => $storedGroqKey !== '' || envValue('FINANZA_GROQ_API_KEY') !== ''
+                'groqApiKeySet' => $storedGroqKey !== '' || envValue('FINANZA_GROQ_API_KEY') !== '',
+                'yapeNumber' => appSetting('yape_number'),
+                'yapeName' => appSetting('yape_name'),
+                'bankAccounts' => appSetting('bank_accounts'),
+                'culqiPublicKey' => appSetting('culqi_public_key'),
+                'culqiSecretSet' => appSetting('culqi_secret_encrypted') !== '',
+                'mercadoPagoPublicKey' => appSetting('mercado_pago_public_key'),
+                'mercadoPagoSecretSet' => appSetting('mercado_pago_secret_encrypted') !== '',
+                'paypalClientId' => appSetting('paypal_client_id'),
+                'paypalSecretSet' => appSetting('paypal_secret_encrypted') !== ''
             ]];
         }
         if ($action === 'admin-settings' && $method === 'PUT') {
@@ -1290,15 +1940,33 @@ function handleRequest(string $action, string $method, array $data): array
             $geminiApiKey = $data['geminiApiKey'] ?? '';
             $groqApiKey = $data['groqApiKey'] ?? '';
             $aiProvider = $data['aiProvider'] ?? 'gemini';
+            $yapeNumber = trim((string) ($data['yapeNumber'] ?? ''));
+            $yapeName = trim((string) ($data['yapeName'] ?? ''));
+            $bankAccounts = trim((string) ($data['bankAccounts'] ?? ''));
+            $culqiPublicKey = trim((string) ($data['culqiPublicKey'] ?? ''));
+            $culqiSecret = $data['culqiSecret'] ?? '';
+            $mercadoPagoPublicKey = trim((string) ($data['mercadoPagoPublicKey'] ?? ''));
+            $mercadoPagoSecret = $data['mercadoPagoSecret'] ?? '';
+            $paypalClientId = trim((string) ($data['paypalClientId'] ?? ''));
+            $paypalSecret = $data['paypalSecret'] ?? '';
+            $gatewaySecrets = [$culqiSecret, $mercadoPagoSecret, $paypalSecret];
             $hasSmtpSettings = $smtpHost !== '' || $smtpUser !== '' || $mailFrom !== '' || $smtpPassword !== '';
             if (!in_array($baseCurrency, ['PEN', 'USD', 'EUR'], true) ||
                 !is_string($smtpPassword) || strlen($smtpPassword) > 500 ||
                 !is_string($geminiApiKey) || strlen($geminiApiKey) > 500 ||
                 !is_string($groqApiKey) || strlen($groqApiKey) > 500 ||
+                !is_string($culqiSecret) || strlen($culqiSecret) > 500 ||
+                !is_string($mercadoPagoSecret) || strlen($mercadoPagoSecret) > 500 ||
+                !is_string($paypalSecret) || strlen($paypalSecret) > 500 ||
                 !in_array($aiProvider, ['gemini', 'groq'], true) ||
                 !preg_match('/^[0-9]{1,5}$/', $smtpPort) || (int) $smtpPort < 1 || (int) $smtpPort > 65535 ||
                 !in_array($smtpEncryption, ['tls', 'ssl', ''], true) || strlen($mailFromName) > 100) {
                 throw new ApiError(422, 'Revisa la configuración del correo y del proveedor de IA.');
+            }
+            if (strlen($yapeNumber) > 40 || strlen($yapeName) > 100 || strlen($bankAccounts) > 2000 ||
+                strlen($culqiPublicKey) > 500 || strlen($mercadoPagoPublicKey) > 500 ||
+                strlen($paypalClientId) > 500) {
+                throw new ApiError(422, 'Revisa los datos de pago y las claves de las pasarelas.');
             }
             if ($hasSmtpSettings && ($smtpHost === '' || $smtpUser === '' || !filter_var($mailFrom, FILTER_VALIDATE_EMAIL))) {
                 throw new ApiError(422, 'Completa el servidor, usuario y correo remitente SMTP.');
@@ -1319,14 +1987,34 @@ function handleRequest(string $action, string $method, array $data): array
             if ($groqApiKey !== '' && strlen(envValue('FINANZA_SETTINGS_ENCRYPTION_KEY')) < 32) {
                 throw new ApiError(422, 'Configura la clave de cifrado del servidor antes de guardar claves de IA.');
             }
+            if (array_filter($gatewaySecrets, static fn($secret): bool => is_string($secret) && $secret !== '') &&
+                strlen(envValue('FINANZA_SETTINGS_ENCRYPTION_KEY')) < 32) {
+                throw new ApiError(422, 'Configura FINANZA_SETTINGS_ENCRYPTION_KEY antes de guardar claves de pasarelas.');
+            }
             $encryptedPassword = $smtpPassword !== '' ? encryptSetting($smtpPassword) : null;
             $encryptedGeminiKey = $geminiApiKey !== '' ? encryptSetting(trim($geminiApiKey)) : null;
             $encryptedGroqKey = $groqApiKey !== '' ? encryptSetting(trim($groqApiKey)) : null;
+            $encryptedGatewaySecrets = [
+                'culqi_secret_encrypted' => $culqiSecret !== '' ? encryptSetting($culqiSecret) : null,
+                'mercado_pago_secret_encrypted' => $mercadoPagoSecret !== '' ? encryptSetting($mercadoPagoSecret) : null,
+                'paypal_secret_encrypted' => $paypalSecret !== '' ? encryptSetting($paypalSecret) : null
+            ];
             $db->beginTransaction();
             try {
                 saveAppSetting('app_name', $appName);
                 saveAppSetting('contact_email', $contactEmail);
                 saveAppSetting('base_currency', $baseCurrency);
+                saveAppSetting('yape_number', $yapeNumber);
+                saveAppSetting('yape_name', $yapeName);
+                saveAppSetting('bank_accounts', $bankAccounts);
+                saveAppSetting('culqi_public_key', $culqiPublicKey);
+                saveAppSetting('mercado_pago_public_key', $mercadoPagoPublicKey);
+                saveAppSetting('paypal_client_id', $paypalClientId);
+                foreach ($encryptedGatewaySecrets as $key => $secret) {
+                    if ($secret !== null) {
+                        saveAppSetting($key, $secret);
+                    }
+                }
                 if ($hasSmtpSettings) {
                     saveAppSetting('smtp_host', $smtpHost);
                     saveAppSetting('smtp_port', $smtpPort);
@@ -1350,7 +2038,9 @@ function handleRequest(string $action, string $method, array $data): array
                 $db->rollBack();
                 throw $error;
             }
-            return ['settings' => publicBranding()];
+            return ['settings' => publicBranding() + [
+                'baseCurrency' => $baseCurrency
+            ]];
         }
         if ($action === 'admin-upload' && $method === 'POST') {
             return ['settings' => uploadBrandAsset((string) ($_POST['kind'] ?? ''))];
@@ -1402,6 +2092,7 @@ function handleRequest(string $action, string $method, array $data): array
                 'SELECT subscription_assignments.id, subscription_assignments.user_id AS userId,
                         subscription_assignments.option_id AS optionId, subscription_assignments.status,
                         subscription_assignments.starts_at AS startsAt, subscription_assignments.ends_at AS endsAt,
+                        subscription_assignments.is_trial AS isTrial,
                         users.name AS userName, users.email, subscription_options.name AS optionName
                  FROM subscription_assignments
                  JOIN users ON users.id = subscription_assignments.user_id
@@ -1412,6 +2103,7 @@ function handleRequest(string $action, string $method, array $data): array
                 $assignment['id'] = (int) $assignment['id'];
                 $assignment['userId'] = (int) $assignment['userId'];
                 $assignment['optionId'] = (int) $assignment['optionId'];
+                $assignment['isTrial'] = (bool) $assignment['isTrial'];
             }
             unset($assignment);
             $users = $db->query("SELECT id, name, email FROM users WHERE role = 'user' ORDER BY name")->fetchAll();
@@ -1430,6 +2122,85 @@ function handleRequest(string $action, string $method, array $data): array
             }
             unset($request);
             return ['options' => $options, 'assignments' => $assignments, 'users' => $users, 'aiRequests' => $aiRequests];
+        }
+        if ($action === 'admin-plan-requests' && $method === 'GET') {
+            $requests = $db->query(
+                'SELECT plan_payment_requests.id, plan_payment_requests.status,
+                        plan_payment_requests.payment_method AS paymentMethod,
+                        plan_payment_requests.payment_reference AS paymentReference,
+                        plan_payment_requests.requested_at AS requestedAt,
+                        users.name, users.email, subscription_options.name AS planName,
+                        subscription_options.billing_period AS billingPeriod,
+                        subscription_options.price_amount AS priceAmount
+                 FROM plan_payment_requests
+                 JOIN users ON users.id = plan_payment_requests.user_id
+                 JOIN subscription_options ON subscription_options.id = plan_payment_requests.option_id
+                 ORDER BY plan_payment_requests.requested_at DESC LIMIT 500'
+            )->fetchAll();
+            return ['requests' => array_map(static function (array $row): array {
+                $row['id'] = (int) $row['id'];
+                $row['requestedAt'] = (int) $row['requestedAt'];
+                $row['priceAmount'] = (float) $row['priceAmount'];
+                return $row;
+            }, $requests)];
+        }
+        if ($action === 'admin-plan-requests' && $method === 'PUT') {
+            $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+            $decision = $data['decision'] ?? null;
+            if (!$id || $id < 1 || !in_array($decision, ['approved', 'rejected'], true)) {
+                throw new ApiError(422, 'Revisa la solicitud de plan.');
+            }
+            $db->beginTransaction();
+            try {
+                $request = $db->prepare(
+                    "SELECT user_id, option_id FROM plan_payment_requests WHERE id = ? AND status = 'pending'"
+                );
+                $request->execute([$id]);
+                $pendingRequest = $request->fetch();
+                if (!$pendingRequest) {
+                    throw new ApiError(409, 'La solicitud ya fue atendida o no existe.');
+                }
+                $db->prepare(
+                    'UPDATE plan_payment_requests SET status = ?, processed_at = ? WHERE id = ?'
+                )->execute([$decision, time(), $id]);
+                if ($decision === 'approved') {
+                    $planStatement = $db->prepare(
+                        'SELECT billing_period FROM subscription_options WHERE id = ? AND active = 1'
+                    );
+                    $planStatement->execute([(int) $pendingRequest['option_id']]);
+                    $period = $planStatement->fetchColumn();
+                    if (!in_array($period, ['monthly', 'yearly'], true)) {
+                        throw new ApiError(409, 'El plan de esta solicitud ya no está disponible.');
+                    }
+                    $today = new DateTimeImmutable('today');
+                    $priorEnd = $db->prepare(
+                        "SELECT MAX(ends_at) FROM subscription_assignments
+                         WHERE user_id = ? AND status = 'active' AND ends_at >= ? AND is_trial = 0"
+                    );
+                    $priorEnd->execute([(int) $pendingRequest['user_id'], $today->format('Y-m-d')]);
+                    $existingEnd = $priorEnd->fetchColumn();
+                    $start = $today;
+                    if (is_string($existingEnd) && $existingEnd >= $today->format('Y-m-d')) {
+                        $start = (new DateTimeImmutable($existingEnd))->modify('+1 day');
+                    }
+                    $end = subscriptionPeriodEnd($start, (string) $period);
+                    $db->prepare(
+                        "INSERT INTO subscription_assignments
+                            (user_id, option_id, status, starts_at, ends_at, is_trial, created_at)
+                         VALUES (?, ?, 'active', ?, ?, 0, ?)"
+                    )->execute([
+                        (int) $pendingRequest['user_id'], (int) $pendingRequest['option_id'],
+                        $start->format('Y-m-d'), $end->format('Y-m-d'), time()
+                    ]);
+                }
+                $db->commit();
+            } catch (Throwable $error) {
+                $db->rollBack();
+                throw $error;
+            }
+            return ['message' => $decision === 'approved'
+                ? 'Pago confirmado y plan activado.'
+                : 'Solicitud de pago rechazada.'];
         }
         if ($action === 'admin-subscriptions' && in_array($method, ['POST', 'PUT'], true)) {
             $name = requiredString($data, 'name', 60);
@@ -1608,6 +2379,154 @@ function handleRequest(string $action, string $method, array $data): array
         return ['message' => 'Sesión cerrada.'];
     }
 
+    if ($action === 'payments' && $method === 'GET') {
+        $statement = $db->prepare(
+            "SELECT payments.id, occurrences.id AS occurrenceId, payments.title, payments.category,
+                    payments.amount, payments.currency, payments.exchange_rate AS exchangeRate,
+                    payments.base_currency AS baseCurrency, occurrences.due_date AS dueDate,
+                    payments.recurrence, payments.reminder_time AS reminderTime
+             FROM scheduled_payments AS payments
+             JOIN payment_occurrences AS occurrences ON occurrences.payment_id = payments.id
+             WHERE payments.user_id = ? AND payments.active = 1 AND occurrences.status = 'pending'
+             ORDER BY occurrences.due_date ASC, payments.title COLLATE NOCASE ASC"
+        );
+        $statement->execute([$userId]);
+        $payments = array_map(static function (array $row): array {
+            $row['id'] = (string) $row['id'];
+            $row['occurrenceId'] = (string) $row['occurrenceId'];
+            $row['amount'] = (float) $row['amount'];
+            $row['exchangeRate'] = (float) $row['exchangeRate'];
+            return $row;
+        }, $statement->fetchAll());
+        return ['payments' => $payments];
+    }
+    if ($action === 'payments' && $method === 'POST') {
+        requireSubscriptionFeature($user, 'Pagos y deudas');
+        [
+            $title, $category, $amount, $currency, $exchangeRate, $baseCurrency,
+            $dueDate, $recurrence, $anchorMonth, $anchorDay, $reminderTime, $timezone
+        ] = validatePaymentSchedule($data);
+        $now = time();
+        $db->beginTransaction();
+        try {
+            $insert = $db->prepare(
+                'INSERT INTO scheduled_payments
+                    (user_id, title, category, amount, currency, exchange_rate, base_currency,
+                     recurrence, anchor_month, anchor_day, reminder_time, timezone, active, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
+            );
+            $insert->execute([
+                $userId, $title, $category, $amount, $currency, $exchangeRate, $baseCurrency,
+                $recurrence, $anchorMonth, $anchorDay, $reminderTime, $timezone, $now, $now
+            ]);
+            $paymentId = (int) $db->lastInsertId();
+            $occurrence = $db->prepare(
+                'INSERT INTO payment_occurrences (payment_id, user_id, due_date, created_at) VALUES (?, ?, ?, ?)'
+            );
+            $occurrence->execute([$paymentId, $userId, $dueDate, $now]);
+            $occurrenceId = (int) $db->lastInsertId();
+            $db->prepare('UPDATE users SET timezone = ? WHERE id = ?')->execute([$timezone, $userId]);
+            $db->commit();
+        } catch (Throwable $error) {
+            $db->rollBack();
+            throw $error;
+        }
+        return ['payment' => [
+            'id' => (string) $paymentId,
+            'occurrenceId' => (string) $occurrenceId,
+            'title' => $title,
+            'category' => $category,
+            'amount' => $amount,
+            'currency' => $currency,
+            'exchangeRate' => $exchangeRate,
+            'baseCurrency' => $baseCurrency,
+            'dueDate' => $dueDate,
+            'recurrence' => $recurrence,
+            'reminderTime' => $reminderTime
+        ]];
+    }
+    if ($action === 'payments' && $method === 'DELETE') {
+        requireSubscriptionFeature($user, 'Pagos y deudas');
+        $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            throw new ApiError(422, 'El pago programado no es válido.');
+        }
+        $statement = $db->prepare('DELETE FROM scheduled_payments WHERE id = ? AND user_id = ?');
+        $statement->execute([$id, $userId]);
+        if ($statement->rowCount() === 0) {
+            throw new ApiError(404, 'No se encontró ese pago programado.');
+        }
+        return ['message' => 'Pago programado eliminado.'];
+    }
+    if ($action === 'payment-paid' && $method === 'POST') {
+        requireSubscriptionFeature($user, 'Pagos y deudas');
+        $occurrenceId = filter_var($data['occurrenceId'] ?? null, FILTER_VALIDATE_INT);
+        if (!$occurrenceId || $occurrenceId < 1) {
+            throw new ApiError(422, 'El vencimiento no es válido.');
+        }
+
+        $db->beginTransaction();
+        try {
+            $statement = $db->prepare(
+                "SELECT occurrences.payment_id, occurrences.due_date, payments.title, payments.category,
+                        payments.amount, payments.currency, payments.exchange_rate, payments.base_currency,
+                        payments.recurrence, payments.anchor_month, payments.anchor_day, payments.timezone
+                 FROM payment_occurrences AS occurrences
+                 JOIN scheduled_payments AS payments ON payments.id = occurrences.payment_id
+                 WHERE occurrences.id = ? AND occurrences.user_id = ? AND occurrences.status = 'pending'
+                   AND payments.active = 1"
+            );
+            $statement->execute([$occurrenceId, $userId]);
+            $payment = $statement->fetch();
+            if (!$payment) {
+                throw new ApiError(409, 'Este vencimiento ya fue registrado o no está disponible.');
+            }
+            $claim = $db->prepare(
+                "UPDATE payment_occurrences SET status = 'paid', paid_at = ?
+                 WHERE id = ? AND user_id = ? AND status = 'pending'"
+            );
+            $claim->execute([time(), $occurrenceId, $userId]);
+            if ($claim->rowCount() !== 1) {
+                throw new ApiError(409, 'Este vencimiento ya fue registrado.');
+            }
+
+            $paidDate = (new DateTimeImmutable('now', new DateTimeZone($payment['timezone'])))->format('Y-m-d');
+            $transaction = $db->prepare(
+                'INSERT INTO transactions
+                    (user_id, description, category, type, amount, currency, exchange_rate, base_currency, date, created_at)
+                 VALUES (?, ?, ?, \'expense\', ?, ?, ?, ?, ?, ?)'
+            );
+            $transaction->execute([
+                $userId, 'Pago: ' . $payment['title'], $payment['category'], $payment['amount'],
+                $payment['currency'], $payment['exchange_rate'], $payment['base_currency'],
+                $paidDate, time()
+            ]);
+            $transactionId = (int) $db->lastInsertId();
+            $db->prepare('UPDATE payment_occurrences SET transaction_id = ? WHERE id = ?')
+                ->execute([$transactionId, $occurrenceId]);
+
+            $nextDueDate = nextPaymentDueDate(
+                $payment['due_date'],
+                $payment['recurrence'],
+                (int) $payment['anchor_month'],
+                (int) $payment['anchor_day']
+            );
+            if ($nextDueDate !== null) {
+                $db->prepare(
+                    'INSERT INTO payment_occurrences (payment_id, user_id, due_date, created_at) VALUES (?, ?, ?, ?)'
+                )->execute([(int) $payment['payment_id'], $userId, $nextDueDate, time()]);
+            } else {
+                $db->prepare('UPDATE scheduled_payments SET active = 0, updated_at = ? WHERE id = ? AND user_id = ?')
+                    ->execute([time(), (int) $payment['payment_id'], $userId]);
+            }
+            $db->commit();
+        } catch (Throwable $error) {
+            $db->rollBack();
+            throw $error;
+        }
+        return ['message' => 'Pago registrado como gasto.', 'transactionId' => (string) $transactionId];
+    }
+
     if ($action === 'transactions' && $method === 'GET') {
         $statement = $db->prepare(
             'SELECT id, description, category, type, amount, currency, exchange_rate AS exchangeRate,
@@ -1646,8 +2565,24 @@ function handleRequest(string $action, string $method, array $data): array
         if ($baseCurrency === false) {
             throw new ApiError(404, 'No se encontró ese movimiento.');
         }
+        $debtOrigin = $db->prepare('SELECT 1 FROM debt_payments WHERE transaction_id = ? AND user_id = ?');
+        $debtOrigin->execute([$id, $userId]);
+        if ($debtOrigin->fetchColumn()) {
+            throw new ApiError(409, 'Un pago de deuda conserva su capital e intereses; no se puede editar desde movimientos.');
+        }
         [$description, $category, $type, $amount, $currency, $exchangeRate, $baseCurrency, $date] =
             validateTransaction($data, (string) $baseCurrency);
+        $paymentOrigin = $db->prepare(
+            'SELECT 1 FROM payment_occurrences WHERE transaction_id = ? AND user_id = ?'
+        );
+        $paymentOrigin->execute([$id, $userId]);
+        $isScheduledPayment = (bool) $paymentOrigin->fetchColumn();
+        if ($isScheduledPayment) {
+            requireSubscriptionFeature($user, 'Pagos y deudas');
+        }
+        if ($isScheduledPayment && $type !== 'expense') {
+            throw new ApiError(422, 'Un pago de la agenda debe conservarse como gasto.');
+        }
         $statement = $db->prepare(
             'UPDATE transactions SET description = ?, category = ?, type = ?, amount = ?, currency = ?, exchange_rate = ?, date = ?
              WHERE id = ? AND user_id = ?'
@@ -1670,12 +2605,297 @@ function handleRequest(string $action, string $method, array $data): array
         if (!$id || $id < 1) {
             throw new ApiError(422, 'El movimiento no es válido.');
         }
+        $linkedPayment = $db->prepare(
+            'SELECT id, payment_id FROM payment_occurrences
+             WHERE transaction_id = ? AND user_id = ? AND status = \'paid\''
+        );
+        $linkedPayment->execute([$id, $userId]);
+        $occurrence = $linkedPayment->fetch();
+        $debtOrigin = $db->prepare('SELECT 1 FROM debt_payments WHERE transaction_id = ? AND user_id = ?');
+        $debtOrigin->execute([$id, $userId]);
+        if ($debtOrigin->fetchColumn()) {
+            throw new ApiError(409, 'Un pago de deuda conserva su historial y saldo; no se puede eliminar desde movimientos.');
+        }
+        if ($occurrence) {
+            requireSubscriptionFeature($user, 'Pagos y deudas');
+            $db->beginTransaction();
+            try {
+                $db->prepare(
+                    "UPDATE payment_occurrences SET status = 'pending', transaction_id = NULL, paid_at = NULL
+                     WHERE id = ? AND user_id = ?"
+                )->execute([(int) $occurrence['id'], $userId]);
+                $db->prepare(
+                    "DELETE FROM payment_occurrences
+                     WHERE payment_id = ? AND user_id = ? AND status = 'pending' AND id != ?"
+                )->execute([(int) $occurrence['payment_id'], $userId, (int) $occurrence['id']]);
+                $db->prepare('UPDATE scheduled_payments SET active = 1, updated_at = ? WHERE id = ? AND user_id = ?')
+                    ->execute([time(), (int) $occurrence['payment_id'], $userId]);
+                $deleted = $db->prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?');
+                $deleted->execute([$id, $userId]);
+                if ($deleted->rowCount() === 0) {
+                    throw new ApiError(404, 'No se encontró ese movimiento.');
+                }
+                $db->commit();
+            } catch (Throwable $error) {
+                $db->rollBack();
+                throw $error;
+            }
+            return ['message' => 'Gasto eliminado y pago devuelto a la agenda.'];
+        }
         $statement = $db->prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?');
         $statement->execute([$id, $userId]);
         if ($statement->rowCount() === 0) {
             throw new ApiError(404, 'No se encontró ese movimiento.');
         }
         return ['message' => 'Movimiento eliminado.'];
+    }
+
+    if ($action === 'debts' && $method === 'GET') {
+        $statement = $db->prepare(
+            'SELECT id, name, lender, original_amount AS originalAmount, balance, currency,
+                    exchange_rate AS exchangeRate, base_currency AS baseCurrency, created_at AS createdAt
+             FROM debts WHERE user_id = ? ORDER BY balance DESC, name COLLATE NOCASE ASC'
+        );
+        $statement->execute([$userId]);
+        $debts = $statement->fetchAll();
+        foreach ($debts as &$debt) {
+            $debt['id'] = (string) $debt['id'];
+            foreach (['originalAmount', 'balance', 'exchangeRate'] as $field) {
+                $debt[$field] = (float) $debt[$field];
+            }
+            $debt['createdAt'] = (int) $debt['createdAt'];
+        }
+        unset($debt);
+        $payments = $db->prepare(
+            'SELECT debt_payments.id, debt_payments.debt_id AS debtId,
+                    debt_payments.principal_amount AS principalAmount,
+                    debt_payments.charges_amount AS chargesAmount, debt_payments.currency,
+                    debt_payments.paid_date AS paidDate, debts.name AS debtName
+             FROM debt_payments JOIN debts ON debts.id = debt_payments.debt_id
+             WHERE debt_payments.user_id = ? ORDER BY debt_payments.paid_date DESC, debt_payments.id DESC LIMIT 100'
+        );
+        $payments->execute([$userId]);
+        $history = array_map(static function (array $row): array {
+            $row['id'] = (string) $row['id'];
+            $row['debtId'] = (string) $row['debtId'];
+            $row['principalAmount'] = (float) $row['principalAmount'];
+            $row['chargesAmount'] = (float) $row['chargesAmount'];
+            return $row;
+        }, $payments->fetchAll());
+        return ['debts' => $debts, 'payments' => $history];
+    }
+    if ($action === 'debts' && $method === 'POST') {
+        requireSubscriptionFeature($user, 'Pagos y deudas');
+        $name = requiredString($data, 'name', 80);
+        $lender = requiredString($data, 'lender', 100);
+        $amount = filter_var($data['amount'] ?? null, FILTER_VALIDATE_FLOAT);
+        $currency = $data['currency'] ?? appSetting('base_currency', 'PEN');
+        $baseCurrency = appSetting('base_currency', 'PEN');
+        $exchangeRate = $currency === $baseCurrency
+            ? 1.0
+            : filter_var($data['exchangeRate'] ?? null, FILTER_VALIDATE_FLOAT);
+        if ($amount === false || !is_finite((float) $amount) || $amount <= 0 || $amount > 100000000000 ||
+            !in_array($currency, ['PEN', 'USD', 'EUR'], true) ||
+            $exchangeRate === false || !is_finite((float) $exchangeRate) ||
+            $exchangeRate <= 0 || $exchangeRate > 100000) {
+            throw new ApiError(422, 'Revisa el monto, moneda y tipo de cambio de la deuda.');
+        }
+        $now = time();
+        $statement = $db->prepare(
+            'INSERT INTO debts
+                (user_id, name, lender, original_amount, balance, currency, exchange_rate, base_currency, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $statement->execute([
+            $userId, $name, $lender, $amount, $amount, $currency, $exchangeRate, $baseCurrency, $now, $now
+        ]);
+        return ['debt' => [
+            'id' => (string) $db->lastInsertId(),
+            'name' => $name,
+            'lender' => $lender,
+            'originalAmount' => (float) $amount,
+            'balance' => (float) $amount,
+            'currency' => $currency,
+            'exchangeRate' => (float) $exchangeRate,
+            'baseCurrency' => $baseCurrency
+        ]];
+    }
+    if ($action === 'debts' && $method === 'DELETE') {
+        requireSubscriptionFeature($user, 'Pagos y deudas');
+        $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            throw new ApiError(422, 'Selecciona una deuda válida.');
+        }
+        $history = $db->prepare('SELECT 1 FROM debt_payments WHERE debt_id = ? AND user_id = ? LIMIT 1');
+        $history->execute([$id, $userId]);
+        if ($history->fetchColumn()) {
+            throw new ApiError(409, 'No puedes eliminar una deuda con pagos registrados; conserva su historial.');
+        }
+        $statement = $db->prepare('DELETE FROM debts WHERE id = ? AND user_id = ?');
+        $statement->execute([$id, $userId]);
+        if ($statement->rowCount() === 0) {
+            throw new ApiError(404, 'No se encontró esa deuda.');
+        }
+        return ['message' => 'Deuda eliminada.'];
+    }
+    if ($action === 'debt-payment' && $method === 'POST') {
+        requireSubscriptionFeature($user, 'Pagos y deudas');
+        $debtId = filter_var($data['debtId'] ?? null, FILTER_VALIDATE_INT);
+        $principal = filter_var($data['principalAmount'] ?? null, FILTER_VALIDATE_FLOAT);
+        $charges = filter_var($data['chargesAmount'] ?? 0, FILTER_VALIDATE_FLOAT);
+        $paidDate = validDateString($data, 'date');
+        if (!$debtId || $debtId < 1 || $principal === false || $charges === false ||
+            !is_finite((float) $principal) || !is_finite((float) $charges) ||
+            $principal < 0 || $charges < 0 || $principal + $charges <= 0) {
+            throw new ApiError(422, 'Ingresa un abono a capital o cargos válido.');
+        }
+        $db->beginTransaction();
+        try {
+            $statement = $db->prepare(
+                'SELECT name, balance, currency, exchange_rate, base_currency
+                 FROM debts WHERE id = ? AND user_id = ?'
+            );
+            $statement->execute([$debtId, $userId]);
+            $debt = $statement->fetch();
+            if (!$debt) {
+                throw new ApiError(404, 'No se encontró esa deuda.');
+            }
+            if ((float) $debt['balance'] <= 0 || $principal > (float) $debt['balance'] + 0.000001) {
+                throw new ApiError(422, 'El abono a capital no puede superar el saldo pendiente.');
+            }
+            $total = round((float) $principal + (float) $charges, 2);
+            $transaction = $db->prepare(
+                'INSERT INTO transactions
+                    (user_id, description, category, type, amount, currency, exchange_rate, base_currency, date, created_at)
+                 VALUES (?, ?, \'Deudas\', \'expense\', ?, ?, ?, ?, ?, ?)'
+            );
+            $transaction->execute([
+                $userId, 'Pago de deuda: ' . $debt['name'], $total, $debt['currency'],
+                $debt['exchange_rate'], $debt['base_currency'], $paidDate, time()
+            ]);
+            $transactionId = (int) $db->lastInsertId();
+            $db->prepare(
+                'INSERT INTO debt_payments
+                    (debt_id, user_id, principal_amount, charges_amount, currency, paid_date, transaction_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $debtId, $userId, $principal, $charges, $debt['currency'], $paidDate, $transactionId, time()
+            ]);
+            $newBalance = max(0, round((float) $debt['balance'] - (float) $principal, 2));
+            $db->prepare('UPDATE debts SET balance = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+                ->execute([$newBalance, time(), $debtId, $userId]);
+            $db->commit();
+        } catch (Throwable $error) {
+            $db->rollBack();
+            throw $error;
+        }
+        return ['message' => 'Pago registrado y saldo actualizado.', 'transactionId' => (string) $transactionId];
+    }
+
+    if ($action === 'budgets' && $method === 'GET') {
+        $statement = $db->prepare(
+            'SELECT id, category, amount, currency FROM budgets WHERE user_id = ? ORDER BY category COLLATE NOCASE'
+        );
+        $statement->execute([$userId]);
+        $rows = array_map(static function (array $row): array {
+            $row['id'] = (string) $row['id'];
+            $row['amount'] = (float) $row['amount'];
+            return $row;
+        }, $statement->fetchAll());
+        return ['budgets' => $rows];
+    }
+    if ($action === 'budgets' && $method === 'POST') {
+        requireSubscriptionFeature($user, 'Presupuestos');
+        $category = requiredString($data, 'category', 40);
+        $amount = filter_var($data['amount'] ?? null, FILTER_VALIDATE_FLOAT);
+        if ($amount === false || !is_finite((float) $amount) || $amount <= 0 || $amount > 100000000000) {
+            throw new ApiError(422, 'Ingresa un límite mensual mayor que cero.');
+        }
+        $currency = appSetting('base_currency', 'PEN');
+        try {
+            $db->prepare(
+                'INSERT INTO budgets (user_id, category, amount, currency, updated_at) VALUES (?, ?, ?, ?, ?)'
+            )->execute([$userId, $category, $amount, $currency, time()]);
+        } catch (PDOException $error) {
+            if (str_contains(strtolower($error->getMessage()), 'unique')) {
+                throw new ApiError(409, 'Ya existe un presupuesto para esa categoría.');
+            }
+            throw $error;
+        }
+        return ['budget' => [
+            'id' => (string) $db->lastInsertId(),
+            'category' => $category,
+            'amount' => (float) $amount,
+            'currency' => $currency
+        ]];
+    }
+    if ($action === 'budgets' && $method === 'PUT') {
+        requireSubscriptionFeature($user, 'Presupuestos');
+        $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+        $category = requiredString($data, 'category', 40);
+        $amount = filter_var($data['amount'] ?? null, FILTER_VALIDATE_FLOAT);
+        if (!$id || $id < 1 || $amount === false || !is_finite((float) $amount) ||
+            $amount <= 0 || $amount > 100000000000) {
+            throw new ApiError(422, 'Revisa el presupuesto y su categoría.');
+        }
+        $statement = $db->prepare(
+            'UPDATE budgets SET category = ?, amount = ?, currency = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+        );
+        try {
+            $statement->execute([$category, $amount, appSetting('base_currency', 'PEN'), time(), $id, $userId]);
+        } catch (PDOException $error) {
+            if (str_contains(strtolower($error->getMessage()), 'unique')) {
+                throw new ApiError(409, 'Ya existe un presupuesto para esa categoría.');
+            }
+            throw $error;
+        }
+        if ($statement->rowCount() === 0) {
+            throw new ApiError(404, 'No se encontró ese presupuesto.');
+        }
+        return ['message' => 'Presupuesto actualizado.'];
+    }
+    if ($action === 'budgets' && $method === 'DELETE') {
+        requireSubscriptionFeature($user, 'Presupuestos');
+        $id = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            throw new ApiError(422, 'Selecciona un presupuesto válido.');
+        }
+        $statement = $db->prepare('DELETE FROM budgets WHERE id = ? AND user_id = ?');
+        $statement->execute([$id, $userId]);
+        if ($statement->rowCount() === 0) {
+            throw new ApiError(404, 'No se encontró ese presupuesto.');
+        }
+        return ['message' => 'Presupuesto eliminado.'];
+    }
+    if ($action === 'emergency-fund' && $method === 'GET') {
+        $statement = $db->prepare(
+            'SELECT target_amount AS target, current_amount AS current, currency
+             FROM emergency_funds WHERE user_id = ?'
+        );
+        $statement->execute([$userId]);
+        $fund = $statement->fetch();
+        if ($fund) {
+            $fund['target'] = (float) $fund['target'];
+            $fund['current'] = (float) $fund['current'];
+        }
+        return ['fund' => $fund ?: null];
+    }
+    if ($action === 'emergency-fund' && $method === 'PUT') {
+        $target = filter_var($data['target'] ?? null, FILTER_VALIDATE_FLOAT);
+        $current = filter_var($data['current'] ?? null, FILTER_VALIDATE_FLOAT);
+        if ($target === false || $current === false || !is_finite((float) $target) ||
+            !is_finite((float) $current) || $target <= 0 || $current < 0 ||
+            $target > 100000000000 || $current > 100000000000) {
+            throw new ApiError(422, 'Revisa la meta y el ahorro actual del fondo.');
+        }
+        $currency = appSetting('base_currency', 'PEN');
+        $db->prepare(
+            'INSERT INTO emergency_funds (user_id, target_amount, current_amount, currency, updated_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(user_id) DO UPDATE SET target_amount = excluded.target_amount,
+             current_amount = excluded.current_amount, currency = excluded.currency, updated_at = excluded.updated_at'
+        )->execute([$userId, $target, $current, $currency, time()]);
+        return ['fund' => ['target' => (float) $target, 'current' => (float) $current, 'currency' => $currency]];
     }
 
     if ($action === 'categories' && $method === 'GET') {
@@ -1732,6 +2952,13 @@ function handleRequest(string $action, string $method, array $data): array
         }, $statement->fetchAll())];
     }
     if ($action === 'goals' && $method === 'POST') {
+        if (($user['role'] ?? '') !== 'master' && !userHasSubscriptionFeature($user, 'Presupuestos')) {
+            $count = $db->prepare('SELECT COUNT(*) FROM goals WHERE user_id = ?');
+            $count->execute([$userId]);
+            if ((int) $count->fetchColumn() >= 1) {
+                throw new ApiError(403, 'El plan Gratis incluye una meta de ahorro. Activa Mensual o Anual para crear más metas.');
+            }
+        }
         $name = requiredString($data, 'name', 60);
         $currency = appSetting('base_currency', 'PEN');
         $target = filter_var($data['target'] ?? null, FILTER_VALIDATE_FLOAT);
@@ -1761,6 +2988,26 @@ function handleRequest(string $action, string $method, array $data): array
     }
 
     throw new ApiError(404, 'No se encontró esta operación.');
+}
+
+if (PHP_SAPI === 'cli') {
+    $job = $argv[1] ?? '';
+    if (!in_array($job, ['send-payment-reminders', 'send-daily-payment-alerts'], true)) {
+        fwrite(STDERR, "Usage: php api/index.php send-payment-reminders|send-daily-payment-alerts\n");
+        exit(64);
+    }
+
+    try {
+        $result = $job === 'send-daily-payment-alerts'
+            ? sendDailyPaymentAlerts()
+            : sendScheduledPaymentReminders();
+        fwrite(STDOUT, sprintf("Payment emails sent: %d; failed: %d\n", $result['sent'], $result['failed']));
+        exit($result['failed'] > 0 ? 1 : 0);
+    } catch (Throwable $error) {
+        error_log('Finanza payment reminder job error: ' . $error->getMessage());
+        fwrite(STDERR, "Could not process payment reminders. Check the PHP error log.\n");
+        exit(1);
+    }
 }
 
 configureCors();

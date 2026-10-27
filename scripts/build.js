@@ -6,6 +6,7 @@ const projectRoot = path.resolve(__dirname, '..');
 const webOutput = path.join(projectRoot, 'www');
 const webFiles = [
   'index.html',
+  'terminos.html',
   'styles.css',
   'manifest.webmanifest',
   'sw.js',
