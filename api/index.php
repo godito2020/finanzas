@@ -326,10 +326,6 @@ function database(): PDO
         );
         CREATE INDEX IF NOT EXISTS plan_payment_requests_status ON plan_payment_requests(status, requested_at DESC)'
     );
-    $connection->exec(
-        'CREATE UNIQUE INDEX IF NOT EXISTS plan_payment_requests_external_reference
-         ON plan_payment_requests(external_reference) WHERE external_reference IS NOT NULL'
-    );
     $userColumns = array_column($connection->query('PRAGMA table_info(users)')->fetchAll(), 'name');
     if (!in_array('role', $userColumns, true)) {
         $connection->exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
@@ -394,6 +390,10 @@ function database(): PDO
             $connection->exec("ALTER TABLE plan_payment_requests ADD COLUMN {$column} {$definition}");
         }
     }
+    $connection->exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS plan_payment_requests_external_reference
+         ON plan_payment_requests(external_reference) WHERE external_reference IS NOT NULL'
+    );
     $aiRequestColumns = array_column($connection->query('PRAGMA table_info(ai_subscription_requests)')->fetchAll(), 'name');
     if (!in_array('payment_method', $aiRequestColumns, true)) {
         $connection->exec('ALTER TABLE ai_subscription_requests ADD COLUMN payment_method TEXT');
