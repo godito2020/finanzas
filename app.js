@@ -45,6 +45,11 @@ const requiredPaymentInstructions = document.getElementById('requiredPaymentInst
 const requiredPaymentReference = document.getElementById('requiredPaymentReference');
 const requiredPaymentStatus = document.getElementById('requiredPaymentStatus');
 const requiredPaymentSubmit = document.getElementById('requiredPaymentSubmit');
+const requiredMercadoPagoOption = document.getElementById('requiredMercadoPagoOption');
+const requiredPaymentReferenceLabel = document.getElementById('requiredPaymentReferenceLabel');
+const mercadoPagoWalletContainer = document.getElementById('mercadoPagoWalletContainer');
+const mercadoPagoCheckoutLink = document.getElementById('mercadoPagoCheckoutLink');
+const mercadoPagoWebhookSecretInput = document.getElementById('mercadoPagoWebhookSecretInput');
 const aiPaymentCurrency = document.getElementById('aiPaymentCurrency');
 const aiPaymentMethod = document.getElementById('aiPaymentMethod');
 const aiPaymentAmount = document.getElementById('aiPaymentAmount');
@@ -196,6 +201,11 @@ const planPaymentMethodInput = document.getElementById('planPaymentMethodInput')
 const selectedPlanPeriod = document.getElementById('selectedPlanPeriod');
 const planPaymentInstructions = document.getElementById('planPaymentInstructions');
 const planPaymentReferenceInput = document.getElementById('planPaymentReferenceInput');
+const planPaymentReferenceField = document.getElementById('planPaymentReferenceField');
+const planMercadoPagoOption = document.getElementById('planMercadoPagoOption');
+const planMercadoPagoWalletContainer = document.getElementById('planMercadoPagoWalletContainer');
+const planMercadoPagoCheckoutLink = document.getElementById('planMercadoPagoCheckoutLink');
+const resumePlanPaymentButton = document.getElementById('resumePlanPaymentButton');
 const cancelPlanRequestButton = document.getElementById('cancelPlanRequestButton');
 const onboardingDialog = document.getElementById('onboardingDialog');
 const onboardingSpotlight = document.getElementById('onboardingSpotlight');
@@ -221,6 +231,8 @@ let subscriptionPlans = [];
 let paymentInstructions = {};
 let currentSubscription = null;
 let hasPendingPlanRequest = false;
+let pendingPlanGateway = null;
+let mercadoPagoWalletBrick = null;
 let featureAccess = { payments: false, debts: false, alerts: false, budgets: false, reports: false };
 let paymentCalendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedPaymentDate = getDateString(0);
@@ -487,12 +499,13 @@ function initialize() {
   planPaymentForm.addEventListener('submit', handlePlanPaymentSubmit);
   requiredPaymentForm.addEventListener('submit', handleRequiredPaymentSubmit);
   requiredPaymentCurrency.addEventListener('change', renderRequiredPayment);
-  requiredPaymentMethod.addEventListener('change', renderRequiredPaymentInstructions);
+  requiredPaymentMethod.addEventListener('change', renderRequiredPayment);
   aiPaymentCurrency.addEventListener('change', renderAiPaymentOffer);
   aiPaymentMethod.addEventListener('change', renderAiPaymentOffer);
   document.getElementById('refreshPaymentStatusButton').addEventListener('click', refreshRequiredPaymentStatus);
   document.getElementById('paymentGateLogoutButton').addEventListener('click', handlePaymentGateLogout);
   planPaymentMethodInput.addEventListener('change', renderPlanPaymentInstructions);
+  resumePlanPaymentButton.addEventListener('click', resumePlanMercadoPagoCheckout);
   cancelPlanRequestButton.addEventListener('click', () => { planPaymentForm.hidden = true; });
   document.getElementById('planCards').addEventListener('click', handlePlanCardClick);
   document.getElementById('togglePlansButton').addEventListener('click', togglePlanOffers);
@@ -799,6 +812,7 @@ async function restoreSession() {
   try {
     const result = await apiRequest('me');
     currentUser = result.user;
+    await checkMercadoPagoReturn();
     if (await showRequiredPaymentIfNeeded()) return;
     await loadAccountData();
     showApp();
@@ -810,9 +824,11 @@ async function restoreSession() {
 }
 
 async function showRequiredPaymentIfNeeded() {
-  const status = await apiRequest('plan-status');
+  let status = await apiRequest('plan-status');
   currentSubscription = status.subscription;
   hasPendingPlanRequest = status.hasPendingRequest;
+  pendingPlanGateway = status.pendingGateway;
+  if (status.accessAllowed) return false;
   if (status.accessAllowed) return false;
   const result = await apiRequest('plans');
   subscriptionPlans = result.plans;
@@ -826,23 +842,47 @@ function renderRequiredPayment() {
   requiredPaymentStatus.classList.remove('error');
   const plan = subscriptionPlans.find((item) => item.billingPeriod === 'lifetime');
   const amount = plan ? Number(plan.priceAmount) : 30;
+  const mercadoPagoAvailable = Boolean(paymentInstructions.mercadoPagoAvailable);
+  if (requiredPaymentMethod.value === 'mercado_pago' && requiredPaymentCurrency.value === 'USD') {
+    requiredPaymentCurrency.value = 'PEN';
+  }
   const currency = requiredPaymentCurrency.value;
+  requiredMercadoPagoOption.hidden = !mercadoPagoAvailable;
+  requiredMercadoPagoOption.disabled = !mercadoPagoAvailable || currency === 'USD';
+  if (!mercadoPagoAvailable && requiredPaymentMethod.value === 'mercado_pago') {
+    requiredPaymentMethod.value = 'transfer';
+  }
+  const useMercadoPago = requiredPaymentMethod.value === 'mercado_pago';
   const paymentAmount = currency === 'USD' ? Math.round((amount / 3.6) * 100) / 100 : amount;
   requiredPaymentAmount.textContent = formatCurrency(paymentAmount, currency);
   requiredPaymentEquivalent.textContent = currency === 'USD'
     ? `${formatCurrency(amount, 'PEN')} · tipo de cambio fijo S/ 3.60 por USD`
     : `${formatCurrency(Math.round((amount / 3.6) * 100) / 100, 'USD')} · tipo de cambio fijo S/ 3.60 por USD`;
-  requiredPaymentSubmit.disabled = !plan || hasPendingPlanRequest;
-  requiredPaymentSubmit.textContent = hasPendingPlanRequest
-    ? 'Pago enviado · En revisión'
-    : plan ? 'Enviar pago único para validación' : 'Plan no disponible';
-  requiredPaymentReference.disabled = hasPendingPlanRequest || !plan;
+  requiredPaymentSubmit.disabled = !plan || (useMercadoPago && !mercadoPagoAvailable) || (hasPendingPlanRequest &&
+    !(useMercadoPago && pendingPlanGateway === 'mercado_pago'));
+  requiredPaymentSubmit.textContent = useMercadoPago
+    ? 'Preparar pago con Mercado Pago'
+    : hasPendingPlanRequest
+      ? 'Pago enviado · En revisión'
+      : plan ? 'Enviar pago único para validación' : 'Plan no disponible';
+  requiredPaymentReference.disabled = hasPendingPlanRequest || !plan || useMercadoPago;
+  requiredPaymentReference.required = !useMercadoPago;
+  requiredPaymentReference.hidden = useMercadoPago;
+  requiredPaymentReferenceLabel.hidden = useMercadoPago;
+  requiredPaymentInstructions.hidden = useMercadoPago;
   requiredPaymentStatus.hidden = !hasPendingPlanRequest;
   requiredPaymentStatus.textContent = hasPendingPlanRequest
-    ? 'Tu operación está pendiente de validación. Puedes verificar el estado más tarde.'
+    ? pendingPlanGateway === 'mercado_pago'
+      ? 'Pago iniciado en Mercado Pago. Completa o vuelve a abrir el checkout; el acceso se activa al confirmarse el pago.'
+      : 'Tu operación está pendiente de validación. Puedes verificar el estado más tarde.'
     : '';
+  mercadoPagoWalletContainer.hidden = !useMercadoPago || !mercadoPagoWalletContainer.childElementCount;
+  mercadoPagoCheckoutLink.hidden = !useMercadoPago || !mercadoPagoCheckoutLink.getAttribute('href');
+  if (!useMercadoPago) {
+    mercadoPagoCheckoutLink.removeAttribute('href');
+  }
   const yapeOption = requiredPaymentMethod.querySelector('option[value="yape"]');
-  yapeOption.disabled = currency === 'USD';
+  yapeOption.disabled = requiredPaymentCurrency.value === 'USD';
   if (currency === 'USD' && requiredPaymentMethod.value === 'yape') {
     requiredPaymentMethod.value = 'transfer';
   }
@@ -866,9 +906,24 @@ function renderRequiredPaymentInstructions() {
 
 async function handleRequiredPaymentSubmit(event) {
   event.preventDefault();
-  if (hasPendingPlanRequest) return;
+  const useMercadoPago = requiredPaymentMethod.value === 'mercado_pago';
+  if (hasPendingPlanRequest && !(useMercadoPago && pendingPlanGateway === 'mercado_pago')) return;
   const plan = subscriptionPlans.find((item) => item.billingPeriod === 'lifetime');
   if (!plan) return;
+  if (useMercadoPago) {
+    requiredPaymentSubmit.disabled = true;
+    requiredPaymentStatus.classList.remove('error');
+    try {
+      await startMercadoPagoCheckout();
+    } catch (error) {
+      requiredPaymentStatus.hidden = false;
+      requiredPaymentStatus.textContent = error.message;
+      requiredPaymentStatus.classList.add('error');
+    } finally {
+      requiredPaymentSubmit.disabled = hasPendingPlanRequest && pendingPlanGateway !== 'mercado_pago';
+    }
+    return;
+  }
   const currency = requiredPaymentCurrency.value;
   const amount = currency === 'USD'
     ? Math.round((Number(plan.priceAmount) / 3.6) * 100) / 100
@@ -888,6 +943,7 @@ async function handleRequiredPaymentSubmit(event) {
       }
     });
     hasPendingPlanRequest = true;
+    pendingPlanGateway = 'manual';
     requiredPaymentReference.value = '';
     renderRequiredPayment();
     requiredPaymentStatus.hidden = false;
@@ -897,17 +953,93 @@ async function handleRequiredPaymentSubmit(event) {
     requiredPaymentStatus.textContent = error.message;
     requiredPaymentStatus.classList.add('error');
   } finally {
-    requiredPaymentSubmit.disabled = hasPendingPlanRequest;
+    requiredPaymentSubmit.disabled = hasPendingPlanRequest &&
+      !(requiredPaymentMethod.value === 'mercado_pago' && pendingPlanGateway === 'mercado_pago');
   }
+}
+
+async function startMercadoPagoCheckout() {
+  const result = await apiRequest('plan-checkout', {
+    method: 'POST',
+    body: { billingPeriod: 'lifetime' }
+  });
+  pendingPlanGateway = 'mercado_pago';
+  hasPendingPlanRequest = true;
+  requiredPaymentStatus.classList.remove('error');
+  requiredPaymentStatus.hidden = false;
+  requiredPaymentStatus.textContent =
+    'Completa el pago desde el botón seguro de Mercado Pago. Tu cuenta se activará al confirmarse.';
+  const mounted = await mountMercadoPagoWallet(
+    result,
+    mercadoPagoWalletContainer,
+    mercadoPagoCheckoutLink
+  );
+  if (!mounted) {
+    requiredPaymentStatus.textContent =
+      'No se pudo cargar el botón de Mercado Pago. Usa el enlace seguro para continuar.';
+  }
+}
+
+async function mountMercadoPagoWallet(result, container, checkoutLink) {
+  checkoutLink.href = result.checkoutUrl;
+  checkoutLink.hidden = false;
+  if (!window.MercadoPago) return false;
+  if (mercadoPagoWalletBrick && typeof mercadoPagoWalletBrick.unmount === 'function') {
+    await mercadoPagoWalletBrick.unmount();
+  }
+  container.replaceChildren();
+  container.hidden = false;
+  const mercadoPago = new window.MercadoPago(result.publicKey, { locale: 'es-PE' });
+  mercadoPagoWalletBrick = await mercadoPago.bricks().create(
+    'wallet',
+    container.id,
+    { initialization: { preferenceId: result.preferenceId } }
+  );
+  checkoutLink.hidden = true;
+  return true;
+}
+
+async function checkMercadoPagoReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const paymentId = params.get('payment_id') || params.get('collection_id');
+  const externalReference = params.get('external_reference');
+  if (!paymentId || !externalReference) return null;
+
+  const url = new URL(window.location.href);
+  ['payment', 'payment_id', 'collection_id', 'collection_status', 'external_reference',
+    'preference_id', 'merchant_order_id', 'status'].forEach((key) => url.searchParams.delete(key));
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  try {
+    const result = await apiRequest('plan-checkout-status', {
+      method: 'POST',
+      body: { paymentId, externalReference }
+    });
+    if (result.approved) return true;
+    showAuthMessage('Mercado Pago aún no confirma el pago. Actualiza el estado en unos momentos.');
+  } catch (error) {
+    showAuthMessage(`No pudimos verificar el pago con Mercado Pago. ${error.message}`, true);
+  }
+  return false;
 }
 
 async function refreshRequiredPaymentStatus() {
   const button = document.getElementById('refreshPaymentStatusButton');
   button.disabled = true;
   try {
-    const status = await apiRequest('plan-status');
+    let status = await apiRequest('plan-status');
     currentSubscription = status.subscription;
     hasPendingPlanRequest = status.hasPendingRequest;
+    pendingPlanGateway = status.pendingGateway;
+    if (pendingPlanGateway === 'mercado_pago' && status.pendingPaymentId && status.pendingExternalReference) {
+      await apiRequest('plan-checkout-status', {
+        method: 'POST',
+        body: { paymentId: status.pendingPaymentId, externalReference: status.pendingExternalReference }
+      });
+      status = await apiRequest('plan-status');
+      currentSubscription = status.subscription;
+      hasPendingPlanRequest = status.hasPendingRequest;
+      pendingPlanGateway = status.pendingGateway;
+    }
     if (status.accessAllowed) {
       await loadAccountData();
       showApp();
@@ -918,7 +1050,9 @@ async function refreshRequiredPaymentStatus() {
     requiredPaymentStatus.hidden = false;
     requiredPaymentStatus.classList.remove('error');
     requiredPaymentStatus.textContent = hasPendingPlanRequest
-      ? 'El pago sigue pendiente de validación.'
+      ? pendingPlanGateway === 'mercado_pago'
+        ? 'Mercado Pago aún no confirma el pago. Actualiza el estado en unos momentos.'
+        : 'El pago sigue pendiente de validación.'
       : 'Aún no hay un pago aprobado. Puedes enviar tu operación cuando realices el pago.';
   } catch (error) {
     requiredPaymentStatus.hidden = false;
@@ -972,6 +1106,7 @@ async function loadAccountData() {
   paymentInstructions = planResult.paymentInstructions;
   currentSubscription = planStatus.subscription;
   hasPendingPlanRequest = planStatus.hasPendingRequest;
+  pendingPlanGateway = planStatus.pendingGateway;
   featureAccess = planStatus.featureAccess || featureAccess;
   aiAssistantAccess = aiStatus;
   aiAssistantAccess.lifetimeAccess = planStatus.lifetimeAccess;
@@ -1263,11 +1398,13 @@ function fillAdminSettings(settings) {
   document.getElementById('mercadoPagoPublicKeyInput').value = settings.mercadoPagoPublicKey || '';
   document.getElementById('mercadoPagoSecretInput').value = '';
   document.getElementById('mercadoPagoSecretInput').placeholder = settings.mercadoPagoSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
+  mercadoPagoWebhookSecretInput.value = '';
+  mercadoPagoWebhookSecretInput.placeholder = settings.mercadoPagoWebhookSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
   document.getElementById('paypalClientIdInput').value = settings.paypalClientId || '';
   document.getElementById('paypalSecretInput').value = '';
   document.getElementById('paypalSecretInput').placeholder = settings.paypalSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
   document.getElementById('gatewayStatus').textContent =
-    `Culqi ${settings.culqiSecretSet ? 'configurado' : 'sin configurar'} · Mercado Pago ${settings.mercadoPagoSecretSet ? 'configurado' : 'sin configurar'} · PayPal ${settings.paypalSecretSet ? 'configurado' : 'sin configurar'}. Checkout automático pendiente de integración.`;
+    `Culqi ${settings.culqiSecretSet ? 'configurado' : 'sin configurar'} · Mercado Pago ${settings.mercadoPagoSecretSet && settings.mercadoPagoWebhookSecretSet && settings.mercadoPagoAppUrlSet ? 'listo para Checkout Pro' : 'incompleto'} · PayPal ${settings.paypalSecretSet ? 'configurado' : 'sin configurar'}.`;
 }
 
 function renderAdminUsers(users) {
@@ -1417,6 +1554,7 @@ async function handleAdminSettingsSubmit(event) {
         culqiSecret: document.getElementById('culqiSecretInput').value.trim(),
         mercadoPagoPublicKey: document.getElementById('mercadoPagoPublicKeyInput').value.trim(),
         mercadoPagoSecret: document.getElementById('mercadoPagoSecretInput').value.trim(),
+        mercadoPagoWebhookSecret: mercadoPagoWebhookSecretInput.value.trim(),
         paypalClientId: document.getElementById('paypalClientIdInput').value.trim(),
         paypalSecret: document.getElementById('paypalSecretInput').value.trim(),
         aiProvider: document.getElementById('aiProviderInput').value,
@@ -1431,6 +1569,7 @@ async function handleAdminSettingsSubmit(event) {
     document.getElementById('groqApiKeyInput').value = '';
     document.getElementById('culqiSecretInput').value = '';
     document.getElementById('mercadoPagoSecretInput').value = '';
+    mercadoPagoWebhookSecretInput.value = '';
     document.getElementById('paypalSecretInput').value = '';
     showAppNotice('Configuración guardada.');
     await loadAdminData();
@@ -1665,11 +1804,12 @@ function renderPlanPaymentRequests(requests) {
     <article class="admin-record plan-request-record" data-plan-request-id="${request.id}">
       <div>
         <strong>${escapeHtml(request.name)} · ${escapeHtml(request.email)}</strong>
-        <small>${escapeHtml(request.planName)} · Pagó ${formatCurrency(request.paymentAmount, request.paymentCurrency)} · ${request.paymentMethod === 'yape' ? 'Yape' : 'Transferencia'}</small>
+        <small>${escapeHtml(request.planName)} · Pagó ${formatCurrency(request.paymentAmount, request.paymentCurrency)} · ${request.gateway === 'mercado_pago' ? 'Mercado Pago' : request.paymentMethod === 'yape' ? 'Yape' : 'Transferencia'}</small>
         <small>Referencia: ${escapeHtml(request.paymentReference)} · ${new Date(request.requestedAt * 1000).toLocaleString('es-PE')}</small>
+        ${request.gateway === 'mercado_pago' ? `<small>Preferencia: ${escapeHtml(request.preferenceId || 'pendiente')} · Pago: ${escapeHtml(request.paymentId || 'pendiente de confirmación automática')}</small>` : ''}
         <small>Estado: ${labels[request.status] || request.status}</small>
       </div>
-      ${request.status === 'pending' ? '<button class="button button-primary plan-request-approve" type="button">Confirmar pago</button><button class="button button-reset plan-request-reject" type="button">Rechazar</button>' : ''}
+      ${request.status === 'pending' && request.gateway !== 'mercado_pago' ? '<button class="button button-primary plan-request-approve" type="button">Confirmar pago</button><button class="button button-reset plan-request-reject" type="button">Rechazar</button>' : ''}
     </article>
   `).join('');
   container.querySelectorAll('.plan-request-approve, .plan-request-reject').forEach((button) => {
@@ -2879,6 +3019,12 @@ function renderPlans() {
     return;
   }
   planSection.hidden = false;
+  resumePlanPaymentButton.hidden = !hasPendingPlanRequest || pendingPlanGateway !== 'mercado_pago';
+  const pendingPlanText = hasPendingPlanRequest
+    ? pendingPlanGateway === 'mercado_pago'
+      ? ' · tienes un pago de Mercado Pago pendiente.'
+      : ' · tienes un pago pendiente de revisión.'
+    : '';
   if (!subscriptionPlans.length) {
     document.getElementById('planCards').innerHTML = '<p class="empty-state">No hay planes publicados.</p>';
     return;
@@ -2888,11 +3034,10 @@ function renderPlans() {
       ? ` · prueba gratis hasta ${formatDate(currentSubscription.endsAt)}`
       : currentSubscription.endsAt ? ` · vigente hasta ${formatDate(currentSubscription.endsAt)}` : '';
     document.getElementById('currentPlanSummary').textContent =
-      `Tu plan actual: ${currentSubscription.name}${trialText}` +
-      (hasPendingPlanRequest ? ' · tienes un pago pendiente de revisión.' : '');
+      `Tu plan actual: ${currentSubscription.name}${trialText}${pendingPlanText}`;
   } else {
     document.getElementById('currentPlanSummary').textContent =
-      `Tu plan actual es Gratis.${hasPendingPlanRequest ? ' Tienes un pago pendiente de revisión.' : ''}`;
+      `Tu plan actual es Gratis.${pendingPlanText}`;
   }
   document.getElementById('planCards').innerHTML = subscriptionPlans
     .filter((plan) => !(plan.billingPeriod === 'lifetime' && currentSubscription?.billingPeriod === 'lifetime'))
@@ -2915,7 +3060,7 @@ function renderPlans() {
         <p>${escapeHtml(plan.description)}</p>
         ${features}
         ${paid && plan.trialDays > 0 ? `<small class="plan-trial">Prueba gratuita de ${plan.trialDays} días</small>` : ''}
-        ${paid ? `<button class="button button-primary wide" type="button" data-plan-period="${escapeHtml(plan.billingPeriod)}" ${hasPendingPlanRequest ? 'disabled' : ''}>${hasPendingPlanRequest ? 'Pago en revisión' : 'Elegir plan'}</button>` : ''}
+        ${paid ? `<button class="button button-primary wide" type="button" data-plan-period="${escapeHtml(plan.billingPeriod)}" ${hasPendingPlanRequest ? 'disabled' : ''}>${hasPendingPlanRequest ? pendingPlanGateway === 'mercado_pago' ? 'Pago pendiente' : 'Pago en revisión' : 'Elegir plan'}</button>` : ''}
       </article>
     `;
   }).join('');
@@ -2936,6 +3081,25 @@ function handlePlanCardClick(event) {
 }
 
 function renderPlanPaymentInstructions() {
+  const isLifetimePlan = selectedPlanPeriod.value === 'lifetime';
+  const mercadoPagoAvailable = Boolean(paymentInstructions.mercadoPagoAvailable);
+  planMercadoPagoOption.hidden = !isLifetimePlan || !mercadoPagoAvailable;
+  planMercadoPagoOption.disabled = planMercadoPagoOption.hidden;
+  if ((!isLifetimePlan || !mercadoPagoAvailable) && planPaymentMethodInput.value === 'mercado_pago') {
+    planPaymentMethodInput.value = 'transfer';
+  }
+  const useMercadoPago = planPaymentMethodInput.value === 'mercado_pago';
+  planPaymentInstructions.hidden = useMercadoPago;
+  planPaymentReferenceField.hidden = useMercadoPago;
+  planPaymentReferenceInput.required = !useMercadoPago;
+  planMercadoPagoWalletContainer.hidden = !useMercadoPago || !planMercadoPagoWalletContainer.childElementCount;
+  planMercadoPagoCheckoutLink.hidden = !useMercadoPago || !planMercadoPagoCheckoutLink.getAttribute('href');
+  if (!useMercadoPago) planMercadoPagoCheckoutLink.removeAttribute('href');
+  const submitButton = planPaymentForm.querySelector('button[type="submit"]');
+  submitButton.textContent = useMercadoPago ? 'Preparar pago con Mercado Pago' : 'Enviar solicitud';
+  submitButton.disabled = hasPendingPlanRequest &&
+    !(useMercadoPago && pendingPlanGateway === 'mercado_pago');
+  if (useMercadoPago) return;
   if (planPaymentMethodInput.value === 'yape') {
     const number = paymentInstructions.yapeNumber;
     const owner = paymentInstructions.yapeName;
@@ -2955,6 +3119,10 @@ async function handlePlanPaymentSubmit(event) {
   const button = planPaymentForm.querySelector('button[type="submit"]');
   button.disabled = true;
   try {
+    if (planPaymentMethodInput.value === 'mercado_pago') {
+      await startPlanMercadoPagoCheckout();
+      return;
+    }
     const result = await apiRequest('plan-request', {
       method: 'POST',
       body: {
@@ -2966,13 +3134,47 @@ async function handlePlanPaymentSubmit(event) {
     const status = await apiRequest('plan-status');
     currentSubscription = status.subscription;
     hasPendingPlanRequest = status.hasPendingRequest;
+    pendingPlanGateway = status.pendingGateway;
     planPaymentForm.hidden = true;
     renderPlans();
     showAppNotice(result.message);
   } catch (error) {
     showAppNotice(error.message, true);
   } finally {
-    button.disabled = false;
+    if (!planPaymentForm.hidden) renderPlanPaymentInstructions();
+  }
+}
+
+async function startPlanMercadoPagoCheckout() {
+  const checkout = await apiRequest('plan-checkout', {
+    method: 'POST',
+    body: { billingPeriod: selectedPlanPeriod.value }
+  });
+  pendingPlanGateway = 'mercado_pago';
+  hasPendingPlanRequest = true;
+  const mounted = await mountMercadoPagoWallet(
+    checkout,
+    planMercadoPagoWalletContainer,
+    planMercadoPagoCheckoutLink
+  );
+  showAppNotice(mounted
+    ? 'Completa el pago desde el botón seguro de Mercado Pago.'
+    : 'No se pudo cargar el botón de Mercado Pago. Usa el enlace seguro para continuar.', !mounted);
+  renderPlanPaymentInstructions();
+  renderPlans();
+}
+
+async function resumePlanMercadoPagoCheckout() {
+  selectedPlanPeriod.value = 'lifetime';
+  document.getElementById('selectedPlanHeading').textContent = 'Completar activación de por vida';
+  planPaymentMethodInput.value = 'mercado_pago';
+  planPaymentForm.hidden = false;
+  renderPlanPaymentInstructions();
+  try {
+    await startPlanMercadoPagoCheckout();
+    planPaymentForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (error) {
+    showAppNotice(error.message, true);
   }
 }
 

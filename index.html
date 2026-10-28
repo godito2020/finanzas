@@ -96,9 +96,12 @@
             <select id="requiredPaymentMethod">
               <option value="yape">Yape (soles)</option>
               <option value="transfer">Transferencia bancaria</option>
+              <option value="mercado_pago" id="requiredMercadoPagoOption" hidden>Mercado Pago</option>
             </select>
             <div class="plan-payment-instructions" id="requiredPaymentInstructions"></div>
-            <label for="requiredPaymentReference">Número de operación o referencia</label>
+            <div class="mercado-pago-wallet" id="mercadoPagoWalletContainer" hidden></div>
+            <a class="button button-primary wide" id="mercadoPagoCheckoutLink" target="_blank" rel="noopener noreferrer" hidden>Continuar en Mercado Pago</a>
+            <label for="requiredPaymentReference" id="requiredPaymentReferenceLabel">Número de operación o referencia</label>
             <input id="requiredPaymentReference" maxlength="120" required />
             <p class="auth-message" id="requiredPaymentStatus" role="status" aria-live="polite" hidden></p>
             <button class="button button-primary wide" type="submit" id="requiredPaymentSubmit">Enviar pago para validación</button>
@@ -475,6 +478,7 @@
           <section class="panel plan-management-panel app-page app-page-plans" id="subscriptionPlans" data-app-page="plans" data-mobile-page="planning">
             <div class="panel-header"><div><p class="eyebrow">TU CUENTA</p><h2>Funciones avanzadas</h2></div></div>
             <p id="currentPlanSummary" class="section-description" aria-live="polite"></p>
+            <button class="button button-primary" id="resumePlanPaymentButton" type="button" hidden>Continuar pago con Mercado Pago</button>
             <button class="button button-quiet" id="togglePlansButton" type="button" aria-expanded="false">Conocer planes</button>
             <div id="planCards" class="plan-cards" aria-live="polite" hidden></div>
             <form id="planPaymentForm" class="plan-payment-form" hidden>
@@ -486,9 +490,12 @@
                 <select id="planPaymentMethodInput" required>
                   <option value="yape">Yape</option>
                   <option value="transfer">Transferencia bancaria</option>
+                  <option value="mercado_pago" id="planMercadoPagoOption" hidden>Mercado Pago · solo soles</option>
                 </select>
               </div>
-              <div class="field-row"><label for="planPaymentReferenceInput">Número de operación o referencia</label><input id="planPaymentReferenceInput" maxlength="120" required /></div>
+              <div class="mercado-pago-wallet" id="planMercadoPagoWalletContainer" hidden></div>
+              <a class="button button-primary wide" id="planMercadoPagoCheckoutLink" target="_blank" rel="noopener noreferrer" hidden>Continuar en Mercado Pago</a>
+              <div class="field-row" id="planPaymentReferenceField"><label for="planPaymentReferenceInput">Número de operación o referencia</label><input id="planPaymentReferenceInput" maxlength="120" required /></div>
               <div class="button-row"><button class="button button-primary" type="submit">Enviar solicitud</button><button class="button button-quiet" id="cancelPlanRequestButton" type="button">Cancelar</button></div>
             </form>
           </section>
@@ -683,7 +690,7 @@
               </div>
               <div class="field-row"><label for="bankAccountsInput">Cuentas bancarias e instrucciones</label><textarea id="bankAccountsInput" maxlength="2000" rows="3" placeholder="Banco, titular, número de cuenta y CCI"></textarea></div>
               <h3>Pasarelas (credenciales cifradas)</h3>
-              <p class="section-description">Puedes registrar credenciales de Culqi, Mercado Pago y PayPal. El cobro automático requiere completar la integración de checkout y webhooks; por ahora las solicitudes se revisan manualmente.</p>
+              <p class="section-description">Configura Mercado Pago para cobrar la activación vitalicia con Checkout Pro. La renovación mensual de IA continúa siendo manual. Culqi y PayPal aún no procesan pagos.</p>
               <div class="field-row two-cols">
                 <div><label for="culqiPublicKeyInput">Culqi · clave pública</label><input id="culqiPublicKeyInput" maxlength="500" /></div>
                 <div><label for="culqiSecretInput">Culqi · clave secreta</label><input id="culqiSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" /></div>
@@ -692,6 +699,11 @@
                 <div><label for="mercadoPagoPublicKeyInput">Mercado Pago · clave pública</label><input id="mercadoPagoPublicKeyInput" maxlength="500" /></div>
                 <div><label for="mercadoPagoSecretInput">Mercado Pago · access token</label><input id="mercadoPagoSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" /></div>
               </div>
+              <div class="field-row">
+                <label for="mercadoPagoWebhookSecretInput">Mercado Pago · clave secreta de Webhooks</label>
+                <input id="mercadoPagoWebhookSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" />
+              </div>
+              <p class="section-description">En Mercado Pago, configura el evento de pagos con la URL https://tu-dominio/api/index.php?action=mercado-pago-webhook. También define FINANZA_APP_URL en el servidor con la URL HTTPS pública de esta aplicación.</p>
               <div class="field-row two-cols">
                 <div><label for="paypalClientIdInput">PayPal · client ID</label><input id="paypalClientIdInput" maxlength="500" /></div>
                 <div><label for="paypalSecretInput">PayPal · client secret</label><input id="paypalSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Sin configurar" /></div>
@@ -836,6 +848,7 @@
       <a href="#debts" data-page="planning"><span class="mobile-nav-icon" aria-hidden="true">⚙</span><span class="mobile-nav-label">Configurar</span></a>
     </nav>
     <script src="api-config.js"></script>
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
     <script src="app.bundle.js"></script>
   </body>
 </html>

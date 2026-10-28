@@ -1,4 +1,4 @@
-const CACHE_NAME = 'finanza-cache-v25';
+const CACHE_NAME = 'finanza-cache-v26';
 const APP_SHELL = [
   './',
   './index.html',
@@ -46,6 +46,9 @@ self.addEventListener('fetch', (event) => {
   }
 
   const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) {
+    return;
+  }
   if (requestUrl.pathname.includes('/api/')) {
     event.respondWith(fetch(event.request));
     return;

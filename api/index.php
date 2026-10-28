@@ -314,11 +314,21 @@ function database(): PDO
             payment_reference TEXT NOT NULL,
             payment_currency TEXT NOT NULL DEFAULT \'PEN\',
             payment_amount REAL NOT NULL DEFAULT 0,
+            gateway TEXT NOT NULL DEFAULT \'manual\',
+            external_reference TEXT,
+            preference_id TEXT,
+            init_point TEXT,
+            payment_id TEXT,
+            checkout_expires_at INTEGER,
             status TEXT NOT NULL DEFAULT \'pending\' CHECK(status IN (\'pending\', \'approved\', \'rejected\')),
             requested_at INTEGER NOT NULL,
             processed_at INTEGER
         );
         CREATE INDEX IF NOT EXISTS plan_payment_requests_status ON plan_payment_requests(status, requested_at DESC)'
+    );
+    $connection->exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS plan_payment_requests_external_reference
+         ON plan_payment_requests(external_reference) WHERE external_reference IS NOT NULL'
     );
     $userColumns = array_column($connection->query('PRAGMA table_info(users)')->fetchAll(), 'name');
     if (!in_array('role', $userColumns, true)) {
@@ -371,6 +381,18 @@ function database(): PDO
     }
     if (!in_array('payment_amount', $paymentRequestColumns, true)) {
         $connection->exec('ALTER TABLE plan_payment_requests ADD COLUMN payment_amount REAL NOT NULL DEFAULT 0');
+    }
+    foreach ([
+        'gateway' => "TEXT NOT NULL DEFAULT 'manual'",
+        'external_reference' => 'TEXT',
+        'preference_id' => 'TEXT',
+        'init_point' => 'TEXT',
+        'payment_id' => 'TEXT',
+        'checkout_expires_at' => 'INTEGER'
+    ] as $column => $definition) {
+        if (!in_array($column, $paymentRequestColumns, true)) {
+            $connection->exec("ALTER TABLE plan_payment_requests ADD COLUMN {$column} {$definition}");
+        }
     }
     $aiRequestColumns = array_column($connection->query('PRAGMA table_info(ai_subscription_requests)')->fetchAll(), 'name');
     if (!in_array('payment_method', $aiRequestColumns, true)) {
@@ -1360,6 +1382,195 @@ function decryptSetting(string $value): string
     return $plaintext;
 }
 
+function mercadoPagoAppUrlAvailable(): bool
+{
+    $appUrl = rtrim(envValue('FINANZA_APP_URL'), '/');
+    $parts = parse_url($appUrl);
+    return $parts !== false && ($parts['scheme'] ?? '') === 'https' && !empty($parts['host']) &&
+        !isset($parts['user']) && !isset($parts['pass']) && !isset($parts['query']) && !isset($parts['fragment']);
+}
+
+function mercadoPagoAppUrl(): string
+{
+    $appUrl = rtrim(envValue('FINANZA_APP_URL'), '/');
+    if (!mercadoPagoAppUrlAvailable()) {
+        throw new ApiError(503, 'Configura FINANZA_APP_URL con la URL HTTPS pública de Finanza.');
+    }
+    return $appUrl;
+}
+
+function mercadoPagoApi(string $method, string $path, ?array $payload = null, ?string $idempotencyKey = null): array
+{
+    $encryptedToken = appSetting('mercado_pago_secret_encrypted');
+    if ($encryptedToken === '') {
+        throw new ApiError(503, 'Mercado Pago aún no está configurado por el administrador.');
+    }
+    if (!function_exists('curl_init')) {
+        throw new ApiError(503, 'El servidor no tiene habilitada la extensión cURL para pagos.');
+    }
+
+    $headers = [
+        'Authorization: Bearer ' . decryptSetting($encryptedToken),
+        'Accept: application/json'
+    ];
+    if ($payload !== null) {
+        $headers[] = 'Content-Type: application/json';
+    }
+    if ($idempotencyKey !== null) {
+        $headers[] = 'X-Idempotency-Key: ' . $idempotencyKey;
+    }
+
+    $curl = curl_init('https://api.mercadopago.com' . $path);
+    curl_setopt_array($curl, [
+        CURLOPT_CUSTOMREQUEST => strtoupper($method),
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2
+    ]);
+    if ($payload !== null) {
+        curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+    $response = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+
+    if (!is_string($response)) {
+        error_log('Mercado Pago API transport error: ' . $curlError);
+        throw new ApiError(502, 'No se pudo conectar con Mercado Pago. Inténtalo nuevamente.');
+    }
+    $result = json_decode($response, true);
+    if ($status < 200 || $status >= 300 || !is_array($result)) {
+        error_log('Mercado Pago API returned HTTP ' . $status . '.');
+        throw new ApiError(502, 'Mercado Pago no pudo procesar la solicitud. Verifica las credenciales e inténtalo nuevamente.');
+    }
+    return $result;
+}
+
+function retrieveMercadoPagoPayment(string $paymentId): array
+{
+    if (!preg_match('/^[0-9]{1,30}$/', $paymentId)) {
+        throw new ApiError(422, 'El identificador del pago de Mercado Pago no es válido.');
+    }
+    return mercadoPagoApi('GET', '/v1/payments/' . rawurlencode($paymentId));
+}
+
+function applyMercadoPagoPayment(array $payment, ?string $expectedExternalReference = null, ?int $userId = null): array
+{
+    $paymentId = (string) ($payment['id'] ?? '');
+    $externalReference = (string) ($payment['external_reference'] ?? '');
+    if ($paymentId === '' || $externalReference === '' ||
+        ($expectedExternalReference !== null && !hash_equals($expectedExternalReference, $externalReference))) {
+        throw new ApiError(409, 'El pago no coincide con la solicitud de Finanza.');
+    }
+
+    $db = database();
+    $sql = 'SELECT id, user_id, option_id, payment_amount, payment_currency, status, payment_id
+            FROM plan_payment_requests
+            WHERE gateway = \'mercado_pago\' AND external_reference = ?';
+    $parameters = [$externalReference];
+    if ($userId !== null) {
+        $sql .= ' AND user_id = ?';
+        $parameters[] = $userId;
+    }
+    $requestStatement = $db->prepare($sql . ' LIMIT 1');
+    $requestStatement->execute($parameters);
+    $request = $requestStatement->fetch();
+    if (!$request) {
+        return ['matched' => false, 'approved' => false];
+    }
+
+    if (strtoupper((string) ($payment['currency_id'] ?? '')) !== (string) $request['payment_currency'] ||
+        !is_numeric($payment['transaction_amount'] ?? null) ||
+        abs((float) $payment['transaction_amount'] - (float) $request['payment_amount']) > 0.009) {
+        error_log('Mercado Pago payment amount or currency did not match request ' . (int) $request['id'] . '.');
+        return ['matched' => false, 'approved' => false];
+    }
+
+    if (($payment['status'] ?? '') !== 'approved') {
+        $db->prepare(
+            "UPDATE plan_payment_requests SET payment_id = ? WHERE id = ? AND status = 'pending'"
+        )->execute([$paymentId, (int) $request['id']]);
+        return ['matched' => true, 'approved' => false, 'paymentStatus' => (string) ($payment['status'] ?? 'unknown')];
+    }
+    if ($request['status'] === 'approved') {
+        return ['matched' => true, 'approved' => true];
+    }
+    if ($request['status'] !== 'pending') {
+        return ['matched' => false, 'approved' => false];
+    }
+
+    $db->beginTransaction();
+    try {
+        $lockedRequest = $db->prepare(
+            "SELECT user_id, option_id FROM plan_payment_requests
+             WHERE id = ? AND gateway = 'mercado_pago' AND status = 'pending'"
+        );
+        $lockedRequest->execute([(int) $request['id']]);
+        $pending = $lockedRequest->fetch();
+        if (!$pending) {
+            $db->commit();
+            return ['matched' => true, 'approved' => false];
+        }
+        $plan = $db->prepare(
+            "SELECT id FROM subscription_options
+             WHERE id = ? AND billing_period = 'lifetime' AND active = 1"
+        );
+        $plan->execute([(int) $pending['option_id']]);
+        $optionId = $plan->fetchColumn();
+        if ($optionId === false) {
+            throw new ApiError(409, 'La activación de por vida ya no está disponible.');
+        }
+        $today = date('Y-m-d');
+        $db->prepare(
+            "INSERT INTO subscription_assignments
+                (user_id, option_id, status, starts_at, ends_at, is_trial, created_at)
+             VALUES (?, ?, 'active', ?, NULL, 0, ?)"
+        )->execute([(int) $pending['user_id'], (int) $optionId, $today, time()]);
+        $db->prepare(
+            "UPDATE plan_payment_requests
+             SET status = 'approved', payment_id = ?, processed_at = ?
+             WHERE id = ? AND status = 'pending'"
+        )->execute([$paymentId, time(), (int) $request['id']]);
+        $db->prepare('UPDATE users SET paid_access_required = 0 WHERE id = ?')
+            ->execute([(int) $pending['user_id']]);
+        $db->commit();
+    } catch (Throwable $error) {
+        $db->rollBack();
+        throw $error;
+    }
+    return ['matched' => true, 'approved' => true];
+}
+
+function validateMercadoPagoWebhookSignature(string $dataId): void
+{
+    $secretEncrypted = appSetting('mercado_pago_webhook_secret_encrypted');
+    $signatureHeader = (string) ($_SERVER['HTTP_X_SIGNATURE'] ?? '');
+    $requestId = (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? '');
+    if ($secretEncrypted === '' || $signatureHeader === '' || $requestId === '' || $dataId === '') {
+        throw new ApiError(401, 'La firma de la notificación de Mercado Pago no es válida.');
+    }
+
+    $parts = [];
+    foreach (explode(',', $signatureHeader) as $component) {
+        $pair = explode('=', trim($component), 2);
+        if (count($pair) === 2) {
+            $parts[$pair[0]] = $pair[1];
+        }
+    }
+    if (empty($parts['ts']) || empty($parts['v1']) || !ctype_digit($parts['ts'])) {
+        throw new ApiError(401, 'La firma de la notificación de Mercado Pago no es válida.');
+    }
+    $manifest = 'id:' . strtolower($dataId) . ';request-id:' . $requestId . ';ts:' . $parts['ts'] . ';';
+    $expected = hash_hmac('sha256', $manifest, decryptSetting($secretEncrypted));
+    if (!hash_equals($expected, strtolower($parts['v1']))) {
+        throw new ApiError(401, 'La firma de la notificación de Mercado Pago no es válida.');
+    }
+}
+
 function requireMaster(array $user): void
 {
     if (($user['role'] ?? '') !== 'master') {
@@ -1434,10 +1645,16 @@ function handleRequest(string $action, string $method, array $data): array
             unset($option['featuresJson']);
         }
         unset($option);
+        $mercadoPagoAvailable = appSetting('mercado_pago_public_key') !== '' &&
+            appSetting('mercado_pago_secret_encrypted') !== '' &&
+            appSetting('mercado_pago_webhook_secret_encrypted') !== '' &&
+        mercadoPagoAppUrlAvailable();
         return ['plans' => $options, 'paymentInstructions' => [
             'yapeNumber' => appSetting('yape_number'),
             'yapeName' => appSetting('yape_name'),
             'bankAccounts' => appSetting('bank_accounts'),
+            'mercadoPagoAvailable' => $mercadoPagoAvailable,
+            'mercadoPagoPublicKey' => $mercadoPagoAvailable ? appSetting('mercado_pago_public_key') : '',
             'gateways' => [
                 'culqi' => appSetting('culqi_secret_encrypted') !== '',
                 'mercadoPago' => appSetting('mercado_pago_secret_encrypted') !== '',
@@ -1728,10 +1945,21 @@ function handleRequest(string $action, string $method, array $data): array
         throw new ApiError(405, 'Método no permitido.');
     }
 
+    if ($action === 'mercado-pago-webhook' && $method === 'POST') {
+        $dataId = (string) ($_GET['data.id'] ?? $_GET['data_id'] ?? ($data['data']['id'] ?? ''));
+        validateMercadoPagoWebhookSignature($dataId);
+        $type = (string) ($_GET['type'] ?? ($data['type'] ?? ''));
+        if ($type === 'payment' && preg_match('/^[0-9]{1,30}$/', $dataId)) {
+            applyMercadoPagoPayment(retrieveMercadoPagoPayment($dataId));
+        }
+        return ['received' => true];
+    }
+
     $user = authenticatedUser();
     $userId = (int) $user['id'];
     if (!userHasPaidAccess($user) &&
-        !in_array($action, ['me', 'logout', 'plans', 'plan-status', 'plan-request', 'public-settings'], true)) {
+        !in_array($action, ['me', 'logout', 'plans', 'plan-status', 'plan-request', 'plan-checkout',
+            'plan-checkout-status', 'public-settings'], true)) {
         throw new ApiError(402, 'Completa el pago único de activación de por vida para habilitar el acceso a Finanza.');
     }
 
@@ -1786,13 +2014,19 @@ function handleRequest(string $action, string $method, array $data): array
             $subscription = $free ?: null;
         }
         $pending = $db->prepare(
-            "SELECT 1 FROM plan_payment_requests WHERE user_id = ? AND status = 'pending' LIMIT 1"
+            "SELECT gateway, external_reference AS externalReference, payment_id AS paymentId
+             FROM plan_payment_requests WHERE user_id = ? AND status = 'pending'
+             ORDER BY requested_at DESC, id DESC LIMIT 1"
         );
         $pending->execute([$userId]);
+        $pendingRequest = $pending->fetch() ?: null;
         $features = userSubscriptionFeatures($user);
         return [
             'subscription' => $subscription,
-            'hasPendingRequest' => (bool) $pending->fetchColumn(),
+            'hasPendingRequest' => $pendingRequest !== null,
+            'pendingGateway' => $pendingRequest['gateway'] ?? null,
+            'pendingExternalReference' => $pendingRequest['externalReference'] ?? null,
+            'pendingPaymentId' => $pendingRequest['paymentId'] ?? null,
             'accessAllowed' => userHasPaidAccess($user),
             'lifetimeAccess' => userHasLifetimeAccess($user),
             'featureAccess' => [
@@ -1802,6 +2036,137 @@ function handleRequest(string $action, string $method, array $data): array
                 'budgets' => in_array('Presupuestos', $features, true),
                 'reports' => in_array('Reportes', $features, true)
             ]
+        ];
+    }
+    if ($action === 'plan-checkout' && $method === 'POST') {
+        if (($user['role'] ?? '') === 'master') {
+            throw new ApiError(403, 'La cuenta maestra no requiere un plan.');
+        }
+        if (userHasLifetimeAccess($user)) {
+            throw new ApiError(409, 'Tu cuenta ya tiene acceso de por vida.');
+        }
+        $publicKey = appSetting('mercado_pago_public_key');
+        if ($publicKey === '' || appSetting('mercado_pago_secret_encrypted') === '' ||
+            appSetting('mercado_pago_webhook_secret_encrypted') === '') {
+            throw new ApiError(503, 'Mercado Pago no está completamente configurado. Selecciona Yape o transferencia.');
+        }
+        $appUrl = mercadoPagoAppUrl();
+        $pendingStatement = $db->prepare(
+            "SELECT id, gateway, preference_id, init_point, external_reference, checkout_expires_at
+             FROM plan_payment_requests WHERE user_id = ? AND status = 'pending'
+             ORDER BY requested_at DESC, id DESC LIMIT 1"
+        );
+        $pendingStatement->execute([$userId]);
+        $pending = $pendingStatement->fetch();
+        if ($pending && $pending['gateway'] === 'mercado_pago' &&
+            (int) $pending['checkout_expires_at'] > time() &&
+            is_string($pending['preference_id']) && $pending['preference_id'] !== '') {
+            return [
+                'preferenceId' => $pending['preference_id'],
+                'publicKey' => $publicKey,
+                'checkoutUrl' => $pending['init_point'],
+                'requestId' => (int) $pending['id'],
+                'externalReference' => $pending['external_reference']
+            ];
+        }
+        if ($pending && $pending['gateway'] === 'mercado_pago' &&
+            (int) $pending['checkout_expires_at'] > 0 &&
+            (int) $pending['checkout_expires_at'] <= time()) {
+            $db->prepare(
+                "UPDATE plan_payment_requests SET status = 'rejected', processed_at = ?
+                 WHERE id = ? AND status = 'pending'"
+            )->execute([time(), (int) $pending['id']]);
+            $pending = false;
+        }
+        if ($pending) {
+            throw new ApiError(409, 'Ya tienes un pago manual pendiente de revisión.');
+        }
+        enforceRateLimit('plan-checkout:' . $userId, 5, 3600);
+        $plan = $db->query(
+            "SELECT id, name, price_amount, price_currency FROM subscription_options
+             WHERE billing_period = 'lifetime' AND active = 1 ORDER BY id LIMIT 1"
+        )->fetch();
+        if (!$plan || strtoupper((string) $plan['price_currency']) !== 'PEN' ||
+            !is_numeric($plan['price_amount']) || (float) $plan['price_amount'] <= 0) {
+            throw new ApiError(409, 'El plan de activación no está disponible para pagos con Mercado Pago.');
+        }
+        $amount = round((float) $plan['price_amount'], 2);
+        $externalReference = bin2hex(random_bytes(24));
+        $expiresAt = time() + 86400;
+        $insert = $db->prepare(
+            "INSERT INTO plan_payment_requests
+                (user_id, option_id, payment_method, payment_reference, payment_currency, payment_amount,
+                 gateway, external_reference, checkout_expires_at, status, requested_at)
+             VALUES (?, ?, 'mercado_pago', 'Checkout Mercado Pago', 'PEN', ?, 'mercado_pago', ?, ?, 'pending', ?)"
+        );
+        $insert->execute([$userId, (int) $plan['id'], $amount, $externalReference, $expiresAt, time()]);
+        $requestId = (int) $db->lastInsertId();
+        $payload = [
+            'items' => [[
+                'id' => 'finanza-lifetime-activation',
+                'title' => 'Activación de Finanza de por vida',
+                'description' => 'Pago único por acceso de por vida a Finanza.',
+                'quantity' => 1,
+                'currency_id' => 'PEN',
+                'unit_price' => $amount
+            ]],
+            'external_reference' => $externalReference,
+            'notification_url' => $appUrl . '/api/index.php?action=mercado-pago-webhook',
+            'back_urls' => [
+                'success' => $appUrl . '/?payment=success&external_reference=' . rawurlencode($externalReference),
+                'pending' => $appUrl . '/?payment=pending&external_reference=' . rawurlencode($externalReference),
+                'failure' => $appUrl . '/?payment=failure&external_reference=' . rawurlencode($externalReference)
+            ],
+            'auto_return' => 'approved',
+            'expires' => true,
+            'date_of_expiration' => gmdate('Y-m-d\TH:i:s.000\Z', $expiresAt),
+            'payer' => ['email' => (string) $user['email']],
+            'metadata' => [
+                'plan_payment_request_id' => $requestId,
+                'user_id' => $userId
+            ]
+        ];
+        try {
+            $preference = mercadoPagoApi('POST', '/checkout/preferences', $payload, $externalReference);
+            $preferenceId = (string) ($preference['id'] ?? '');
+            if ($preferenceId === '') {
+                throw new ApiError(502, 'Mercado Pago no devolvió el identificador de la preferencia.');
+            }
+            $encryptedToken = decryptSetting(appSetting('mercado_pago_secret_encrypted'));
+            $checkoutUrl = str_starts_with($encryptedToken, 'TEST-')
+                ? (string) ($preference['sandbox_init_point'] ?? $preference['init_point'] ?? '')
+                : (string) ($preference['init_point'] ?? '');
+            if ($checkoutUrl === '' || !str_starts_with($checkoutUrl, 'https://')) {
+                throw new ApiError(502, 'Mercado Pago no devolvió un enlace de pago válido.');
+            }
+            $db->prepare(
+                'UPDATE plan_payment_requests SET preference_id = ?, init_point = ? WHERE id = ?'
+            )->execute([$preferenceId, $checkoutUrl, $requestId]);
+            return [
+                'preferenceId' => $preferenceId,
+                'publicKey' => $publicKey,
+                'checkoutUrl' => $checkoutUrl,
+                'requestId' => $requestId,
+                'externalReference' => $externalReference
+            ];
+        } catch (Throwable $error) {
+            $db->prepare(
+                "UPDATE plan_payment_requests SET status = 'rejected', processed_at = ? WHERE id = ? AND status = 'pending'"
+            )->execute([time(), $requestId]);
+            throw $error;
+        }
+    }
+    if ($action === 'plan-checkout-status' && $method === 'POST') {
+        $externalReference = requiredString($data, 'externalReference', 64);
+        $paymentId = requiredString($data, 'paymentId', 30);
+        $payment = retrieveMercadoPagoPayment($paymentId);
+        $result = applyMercadoPagoPayment($payment, $externalReference, $userId);
+        if (!$result['matched']) {
+            throw new ApiError(404, 'No se encontró un pago asociado a tu cuenta.');
+        }
+        return [
+            'approved' => (bool) $result['approved'],
+            'paymentStatus' => (string) ($result['paymentStatus'] ?? ($result['approved'] ? 'approved' : 'pending'))
         ];
     }
     if ($action === 'plan-request' && $method === 'POST') {
@@ -2084,6 +2449,8 @@ function handleRequest(string $action, string $method, array $data): array
                 'culqiSecretSet' => appSetting('culqi_secret_encrypted') !== '',
                 'mercadoPagoPublicKey' => appSetting('mercado_pago_public_key'),
                 'mercadoPagoSecretSet' => appSetting('mercado_pago_secret_encrypted') !== '',
+                'mercadoPagoWebhookSecretSet' => appSetting('mercado_pago_webhook_secret_encrypted') !== '',
+                'mercadoPagoAppUrlSet' => mercadoPagoAppUrlAvailable(),
                 'paypalClientId' => appSetting('paypal_client_id'),
                 'paypalSecretSet' => appSetting('paypal_secret_encrypted') !== ''
             ]];
@@ -2112,9 +2479,10 @@ function handleRequest(string $action, string $method, array $data): array
             $culqiSecret = $data['culqiSecret'] ?? '';
             $mercadoPagoPublicKey = trim((string) ($data['mercadoPagoPublicKey'] ?? ''));
             $mercadoPagoSecret = $data['mercadoPagoSecret'] ?? '';
+            $mercadoPagoWebhookSecret = $data['mercadoPagoWebhookSecret'] ?? '';
             $paypalClientId = trim((string) ($data['paypalClientId'] ?? ''));
             $paypalSecret = $data['paypalSecret'] ?? '';
-            $gatewaySecrets = [$culqiSecret, $mercadoPagoSecret, $paypalSecret];
+            $gatewaySecrets = [$culqiSecret, $mercadoPagoSecret, $mercadoPagoWebhookSecret, $paypalSecret];
             $hasSmtpSettings = $smtpHost !== '' || $smtpUser !== '' || $mailFrom !== '' || $smtpPassword !== '';
             if (!in_array($baseCurrency, ['PEN', 'USD', 'EUR'], true) ||
                 !is_string($smtpPassword) || strlen($smtpPassword) > 500 ||
@@ -2122,6 +2490,7 @@ function handleRequest(string $action, string $method, array $data): array
                 !is_string($groqApiKey) || strlen($groqApiKey) > 500 ||
                 !is_string($culqiSecret) || strlen($culqiSecret) > 500 ||
                 !is_string($mercadoPagoSecret) || strlen($mercadoPagoSecret) > 500 ||
+                !is_string($mercadoPagoWebhookSecret) || strlen($mercadoPagoWebhookSecret) > 500 ||
                 !is_string($paypalSecret) || strlen($paypalSecret) > 500 ||
                 !in_array($aiProvider, ['gemini', 'groq'], true) ||
                 !preg_match('/^[0-9]{1,5}$/', $smtpPort) || (int) $smtpPort < 1 || (int) $smtpPort > 65535 ||
@@ -2162,6 +2531,7 @@ function handleRequest(string $action, string $method, array $data): array
             $encryptedGatewaySecrets = [
                 'culqi_secret_encrypted' => $culqiSecret !== '' ? encryptSetting($culqiSecret) : null,
                 'mercado_pago_secret_encrypted' => $mercadoPagoSecret !== '' ? encryptSetting($mercadoPagoSecret) : null,
+                'mercado_pago_webhook_secret_encrypted' => $mercadoPagoWebhookSecret !== '' ? encryptSetting($mercadoPagoWebhookSecret) : null,
                 'paypal_secret_encrypted' => $paypalSecret !== '' ? encryptSetting($paypalSecret) : null
             ];
             $db->beginTransaction();
@@ -2298,6 +2668,9 @@ function handleRequest(string $action, string $method, array $data): array
                 'SELECT plan_payment_requests.id, plan_payment_requests.status,
                         plan_payment_requests.payment_method AS paymentMethod,
                         plan_payment_requests.payment_reference AS paymentReference,
+                            plan_payment_requests.gateway,
+                            plan_payment_requests.preference_id AS preferenceId,
+                            plan_payment_requests.payment_id AS paymentId,
                             CASE WHEN plan_payment_requests.payment_amount > 0
                                  THEN plan_payment_requests.payment_currency
                                  ELSE subscription_options.price_currency END AS paymentCurrency,
@@ -2336,6 +2709,11 @@ function handleRequest(string $action, string $method, array $data): array
                 $pendingRequest = $request->fetch();
                 if (!$pendingRequest) {
                     throw new ApiError(409, 'La solicitud ya fue atendida o no existe.');
+                }
+                $gatewayStatement = $db->prepare('SELECT gateway FROM plan_payment_requests WHERE id = ?');
+                $gatewayStatement->execute([$id]);
+                if ($gatewayStatement->fetchColumn() === 'mercado_pago') {
+                    throw new ApiError(409, 'Los pagos de Mercado Pago se confirman automáticamente mediante una notificación verificada.');
                 }
                 $db->prepare(
                     'UPDATE plan_payment_requests SET status = ?, processed_at = ? WHERE id = ?'
