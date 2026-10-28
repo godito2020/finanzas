@@ -45,6 +45,13 @@ const requiredPaymentInstructions = document.getElementById('requiredPaymentInst
 const requiredPaymentReference = document.getElementById('requiredPaymentReference');
 const requiredPaymentStatus = document.getElementById('requiredPaymentStatus');
 const requiredPaymentSubmit = document.getElementById('requiredPaymentSubmit');
+const aiPaymentCurrency = document.getElementById('aiPaymentCurrency');
+const aiPaymentMethod = document.getElementById('aiPaymentMethod');
+const aiPaymentAmount = document.getElementById('aiPaymentAmount');
+const aiPaymentInstructions = document.getElementById('aiPaymentInstructions');
+const aiPaymentReference = document.getElementById('aiPaymentReference');
+const aiPaymentControls = document.getElementById('aiPaymentControls');
+const aiActivateLifetimeButton = document.getElementById('aiActivateLifetimeButton');
 const verifyEmailForm = document.getElementById('verifyEmailForm');
 const verificationEmail = document.getElementById('verificationEmail');
 const verificationCode = document.getElementById('verificationCode');
@@ -236,44 +243,102 @@ let publicBrand = { appName: 'Finanza', logoUrl: '', faviconUrl: '' };
 let onboardingStep = 0;
 const onboardingSteps = [
   {
-    title: 'Tu dinero, resumido',
-    description: 'Estas tarjetas comparan tus ingresos y gastos del mes. El balance es la diferencia entre ambos y el ahorro sugerido te da una referencia para planificar.',
-    target: '.cards'
+    title: 'Bienvenido a tu resumen',
+    description: 'Este es el punto de partida. Desde el menú lateral puedes entrar a cada módulo; durante este recorrido iremos abriendo las opciones principales para que veas dónde está cada herramienta.',
+    target: '.dashboard-filters',
+    page: 'summary',
+    hash: 'overview'
   },
   {
-    title: 'Entiende tus tendencias',
-    description: 'Los gráficos muestran cómo cambian tus ingresos y gastos por mes y en qué categorías gastas más. Se actualizan cuando registras movimientos.',
-    target: '.analytics-grid'
+    title: 'Consulta tus cifras',
+    description: 'Las tarjetas muestran el balance, los ingresos, los gastos y los pagos pendientes del período. Usa los filtros de semana, mes, año, todo o rango para cambiar lo que estás analizando.',
+    target: '.cards',
+    page: 'summary',
+    hash: 'overview'
   },
   {
-    title: 'Registra cada movimiento',
-    description: 'Anota aquí un ingreso o un gasto. Añade descripción, categoría, monto y fecha; si usas otra moneda, selecciónala para convertirla en el resumen. Si tienes habilitado el registro inteligente, puedes empezar con una foto o descripción y revisar los datos antes de guardar.',
-    target: '#transactionForm'
+    title: 'Revisa tus tendencias',
+    description: 'Los gráficos comparan ingresos y gastos por mes y muestran en qué categorías se concentran los gastos. Se actualizan con los movimientos que registres.',
+    target: '.analytics-grid',
+    page: 'summary',
+    hash: 'overview'
   },
   {
-    title: 'Organiza a tu manera',
-    description: 'Crea categorías propias, como Mascotas o Suscripciones. Luego podrás elegirlas al registrar movimientos y reconocer mejor en qué se va tu dinero.',
-    target: '#categoryForm'
+    title: 'Registra un ingreso o gasto',
+    description: 'Abre “Nuevo movimiento” para anotar una descripción, tipo, categoría, monto y fecha. Si usas otra moneda, selecciónala e indica el tipo de cambio. Puedes limpiar el formulario antes de guardar y, si tienes IA habilitada, dictar o analizar un comprobante.',
+    target: '#transactionForm',
+    page: 'capture',
+    hash: 'capture'
   },
   {
-    title: 'Ahorra con una meta',
-    description: 'Define cuánto quieres ahorrar, cuánto llevas y para cuándo. Después encontrarás el avance de tus objetivos en la sección “Tus metas”.',
-    target: '#goalForm'
+    title: 'Explora tus movimientos',
+    description: 'En “Movimientos” está tu historial completo. Busca por descripción y filtra por tipo, categoría o mes. Desde la columna de acciones puedes editar o eliminar un registro.',
+    target: '#transactions',
+    page: 'transactions',
+    hash: 'transactions'
   },
   {
-    title: 'Encuentra cualquier movimiento',
-    description: 'En tu historial puedes buscar por descripción y filtrar por tipo, categoría o mes. Desde cada registro también puedes editarlo o eliminarlo.',
-    target: '#transactions'
+    title: 'Programa tus pagos',
+    description: 'En “Pagos” registra servicios, alquileres o tarjetas con monto, moneda, vencimiento, recurrencia y hora del aviso. El calendario y la lista te ayudan a revisar lo que vence; marcar un pago como realizado también lo registra como gasto.',
+    target: '#payments',
+    page: 'agenda',
+    hash: 'payments'
   },
   {
-    title: 'No pierdas de vista tus pagos',
-    description: 'Programa servicios, tarjetas o alquiler para ver sus vencimientos en el calendario. Te avisaremos por correo; al marcar un pago como realizado, Finanza lo registra también como gasto.',
-    target: '#payments'
+    title: 'Controla tus deudas',
+    description: 'En “Deudas” registra préstamos y consulta el saldo pendiente. Cuando realices un pago, separa el abono a capital de los intereses o cargos para mantener actualizado el saldo y el historial.',
+    target: '#debts',
+    page: 'debts',
+    hash: 'debts'
   },
   {
-    title: 'Herramientas para continuar',
-    description: 'Descarga un reporte PDF para guardar tus movimientos, consulta el manual cuando necesites más detalle y envía sugerencias. Puedes volver a recorrer esta guía con el botón “Ver guía”.',
-    target: '.topbar-actions'
+    title: 'Prepara tu fondo de emergencia',
+    description: 'Define una meta y registra cuánto tienes ahorrado para ver tu progreso. La sugerencia se basa en tus gastos recientes; Finanza solo lleva el control y no mueve dinero.',
+    target: '#emergencyFund',
+    page: 'emergency',
+    hash: 'emergencyFund'
+  },
+  {
+    title: 'Personaliza tus categorías',
+    description: 'Crea categorías propias, como Mascotas o Suscripciones. Luego estarán disponibles al registrar movimientos y podrás identificar mejor en qué se va el dinero.',
+    target: '#categories',
+    page: 'categories',
+    hash: 'categories'
+  },
+  {
+    title: 'Define tus metas de ahorro',
+    description: 'En “Metas” indica qué quieres lograr, el monto objetivo, cuánto llevas ahorrado y una fecha. Finanza mostrará el avance para ayudarte a seguir tu plan.',
+    target: '#goalForm',
+    page: 'goals',
+    hash: 'goals'
+  },
+  {
+    title: 'Planea presupuestos',
+    description: 'Asigna un límite mensual a una categoría y consulta cuánto has gastado frente a ese monto. Así puedes detectar a tiempo si te acercas al tope.',
+    target: '#dashboardBudgets',
+    page: 'budgets',
+    hash: 'dashboardBudgets'
+  },
+  {
+    title: 'Conoce tus planes',
+    description: 'En “Planes” puedes consultar las funciones disponibles para tu cuenta y las condiciones de cada suscripción. Los pagos manuales quedan pendientes hasta que el administrador los valide.',
+    target: '#subscriptionPlans',
+    page: 'plans',
+    hash: 'subscriptionPlans'
+  },
+  {
+    title: 'Genera reportes detallados',
+    description: 'Filtra los movimientos por período, tipo y categoría; revisa los totales y el detalle incluido antes de descargar el reporte en PDF.',
+    target: '#reports',
+    page: 'reports',
+    hash: 'reports'
+  },
+  {
+    title: 'Vuelve a este recorrido cuando quieras',
+    description: 'El menú “Opciones” reúne accesos rápidos, apariencia, el manual y el botón “Ver guía”. Puedes regresar al resumen desde el menú lateral. ¡Listo para empezar!',
+    target: '.utility-menu > summary',
+    page: 'reports',
+    hash: 'reports'
   }
 ];
 
@@ -423,6 +488,8 @@ function initialize() {
   requiredPaymentForm.addEventListener('submit', handleRequiredPaymentSubmit);
   requiredPaymentCurrency.addEventListener('change', renderRequiredPayment);
   requiredPaymentMethod.addEventListener('change', renderRequiredPaymentInstructions);
+  aiPaymentCurrency.addEventListener('change', renderAiPaymentOffer);
+  aiPaymentMethod.addEventListener('change', renderAiPaymentOffer);
   document.getElementById('refreshPaymentStatusButton').addEventListener('click', refreshRequiredPaymentStatus);
   document.getElementById('paymentGateLogoutButton').addEventListener('click', handlePaymentGateLogout);
   planPaymentMethodInput.addEventListener('change', renderPlanPaymentInstructions);
@@ -468,6 +535,10 @@ function initialize() {
     startAiDictation();
   });
   requestAiAccessButton.addEventListener('click', requestAiSubscription);
+  aiActivateLifetimeButton.addEventListener('click', () => {
+    aiAssistantDialog.close();
+    openPlanOffers();
+  });
   closeAiAssistantButton.addEventListener('click', () => aiAssistantDialog.close());
   cancelAiAssistantButton.addEventListener('click', () => aiAssistantDialog.close());
   aiAssistantDialog.addEventListener('click', (event) => {
@@ -753,8 +824,8 @@ async function showRequiredPaymentIfNeeded() {
 
 function renderRequiredPayment() {
   requiredPaymentStatus.classList.remove('error');
-  const plan = subscriptionPlans.find((item) => item.billingPeriod === 'monthly');
-  const amount = plan ? Number(plan.priceAmount) : 10;
+  const plan = subscriptionPlans.find((item) => item.billingPeriod === 'lifetime');
+  const amount = plan ? Number(plan.priceAmount) : 30;
   const currency = requiredPaymentCurrency.value;
   const paymentAmount = currency === 'USD' ? Math.round((amount / 3.6) * 100) / 100 : amount;
   requiredPaymentAmount.textContent = formatCurrency(paymentAmount, currency);
@@ -764,7 +835,7 @@ function renderRequiredPayment() {
   requiredPaymentSubmit.disabled = !plan || hasPendingPlanRequest;
   requiredPaymentSubmit.textContent = hasPendingPlanRequest
     ? 'Pago enviado · En revisión'
-    : plan ? 'Enviar pago para validación' : 'Plan no disponible';
+    : plan ? 'Enviar pago único para validación' : 'Plan no disponible';
   requiredPaymentReference.disabled = hasPendingPlanRequest || !plan;
   requiredPaymentStatus.hidden = !hasPendingPlanRequest;
   requiredPaymentStatus.textContent = hasPendingPlanRequest
@@ -796,7 +867,7 @@ function renderRequiredPaymentInstructions() {
 async function handleRequiredPaymentSubmit(event) {
   event.preventDefault();
   if (hasPendingPlanRequest) return;
-  const plan = subscriptionPlans.find((item) => item.billingPeriod === 'monthly');
+  const plan = subscriptionPlans.find((item) => item.billingPeriod === 'lifetime');
   if (!plan) return;
   const currency = requiredPaymentCurrency.value;
   const amount = currency === 'USD'
@@ -809,7 +880,7 @@ async function handleRequiredPaymentSubmit(event) {
     const result = await apiRequest('plan-request', {
       method: 'POST',
       body: {
-        billingPeriod: 'monthly',
+        billingPeriod: 'lifetime',
         paymentMethod: requiredPaymentMethod.value,
         paymentReference: requiredPaymentReference.value.trim(),
         paymentCurrency: currency,
@@ -903,6 +974,7 @@ async function loadAccountData() {
   hasPendingPlanRequest = planStatus.hasPendingRequest;
   featureAccess = planStatus.featureAccess || featureAccess;
   aiAssistantAccess = aiStatus;
+  aiAssistantAccess.lifetimeAccess = planStatus.lifetimeAccess;
   applyBaseCurrency(publicSettings.settings.baseCurrency);
   openAiAssistantButton.hidden = false;
   aiFloatingButton.hidden = !aiStatus.available;
@@ -962,8 +1034,8 @@ function showAuthView(view, message = '') {
   const headings = {
     login: ['Qué gusto verte.', 'Inicia sesión para consultar tus movimientos desde cualquier dispositivo.'],
     setupMaster: ['Configura el acceso maestro.', 'Usa el código único definido en la configuración privada del servidor.'],
-    register: ['Empieza con claridad.', 'Crea tu cuenta. La suscripción cuesta S/ 10 al mes o USD 2.78 y se activa tras validar el pago.'],
-    requiredPayment: ['Activa tu cuenta.', 'La suscripción mensual cuesta S/ 10 o USD 2.78. Enviaremos tu operación para validación manual antes de habilitar el acceso.'],
+    register: ['Empieza con claridad.', 'Crea tu cuenta y activa Finanza con un pago único de S/ 30 o USD 8.33. La IA es opcional por S/ 10 mensuales.'],
+    requiredPayment: ['Activa tu cuenta.', 'El acceso de por vida cuesta S/ 30 o USD 8.33, en un único pago. La operación se validará manualmente.'],
     verifyEmail: ['Confirma tu correo.', 'Ingresa el código de 8 dígitos que enviamos a tu correo para activar tu cuenta.'],
     requestReset: ['Recuperemos el acceso.', 'Te enviaremos un código de un solo uso a tu correo.'],
     resetPassword: ['Crea una nueva clave.', 'El código enviado a tu correo caduca en 15 minutos.']
@@ -1453,15 +1525,19 @@ function renderSubscriptionData(data) {
   } else {
     aiRequestsList.innerHTML = data.aiRequests.map((request) => `
       <div class="admin-record ai-request-record" data-request-id="${request.id}">
-        <div><strong>${escapeHtml(request.name)} · ${escapeHtml(request.email)}</strong><small>${requestStatusLabels[request.status]} · ${new Date(request.requestedAt * 1000).toLocaleString('es-PE')}</small></div>
-        ${request.status === 'pending' ? '<button class="button button-primary ai-request-paid" type="button">Confirmar pago y habilitar 30 días</button><button class="button button-reset ai-request-reject" type="button">Rechazar</button>' : ''}
+        <div>
+          <strong>${escapeHtml(request.name)} · ${escapeHtml(request.email)}</strong>
+          <small>${requestStatusLabels[request.status]} · ${new Date(request.requestedAt * 1000).toLocaleString('es-PE')}</small>
+          <small>Pago: ${request.paymentAmount === null ? 'Datos antiguos sin detalle' : `${formatCurrency(request.paymentAmount, request.paymentCurrency)} · ${request.paymentMethod === 'yape' ? 'Yape' : 'Transferencia'} · Ref. ${escapeHtml(request.paymentReference || '—')}`}</small>
+        </div>
+        ${request.status === 'pending' ? '<button class="button button-primary ai-request-paid" type="button">Confirmar pago y habilitar un mes</button><button class="button button-reset ai-request-reject" type="button">Rechazar</button>' : ''}
       </div>
     `).join('');
     aiRequestsList.querySelectorAll('.ai-request-paid, .ai-request-reject').forEach((button) => {
       button.addEventListener('click', async () => {
         const record = button.closest('.ai-request-record');
         const decision = button.classList.contains('ai-request-paid') ? 'paid' : 'rejected';
-        if (decision === 'paid' && !window.confirm('Confirma que recibiste S/ 10 del usuario. Se habilitarán 30 días desde hoy (o después de su periodo actual).')) return;
+        if (decision === 'paid' && !window.confirm('Confirma que recibiste y verificaste el pago mensual de IA. Se habilitará un mes desde hoy (o después de su periodo actual).')) return;
         button.disabled = true;
         try {
           const result = await apiRequest('admin-ai-requests', {
@@ -1775,7 +1851,7 @@ function updateInstallButtonVisibility() {
 
 async function handleReportClick() {
   if (!featureAccess.reports) {
-    showAppNotice('La descarga de reportes está disponible en los planes Mensual y Anual. Revisa Plan y suscripción.', true);
+    showAppNotice('La descarga de reportes está disponible con el acceso de por vida. Revisa Plan y suscripción.', true);
     return;
   }
   try {
@@ -2091,17 +2167,28 @@ function openAiAssistant() {
     : 'Registro inteligente Pro';
   aiAssistantTools.hidden = !aiAssistantAccess.available;
   aiPaidOffer.hidden = aiAssistantAccess.available;
+  aiPaymentReference.value = '';
+  renderAiPaymentOffer();
   startVoiceButton.textContent = window.SpeechRecognition || window.webkitSpeechRecognition
     ? 'Grabar descripción'
     : 'Interpretar texto';
   if (!aiAssistantAccess.available) {
     const isPending = aiAssistantAccess.requestStatus === 'pending';
+    const needsLifetime = !aiAssistantAccess.lifetimeAccess && !isPending;
     aiRequestStatus.textContent = isPending
       ? 'Ya recibimos tu solicitud. Te habilitaremos el servicio cuando el administrador confirme el pago.'
-      : aiAssistantAccess.requestStatus === 'rejected'
-        ? 'La solicitud anterior no fue aprobada. Si ya realizaste el pago, puedes enviar una nueva solicitud.'
-        : 'Luego de realizar el pago, solicita aquí la activación. El administrador verificará el pago antes de habilitarlo.';
-    requestAiAccessButton.hidden = isPending;
+      : needsLifetime
+        ? 'La IA es opcional: primero activa Finanza por única vez y luego podrás solicitar la mensualidad de IA.'
+        : aiAssistantAccess.requestStatus === 'rejected'
+          ? 'La solicitud anterior no fue aprobada. Si ya realizaste el pago, puedes enviar una nueva solicitud.'
+          : 'Luego de realizar el pago, solicita aquí la activación. El administrador verificará el pago.';
+    aiPaymentControls.hidden = needsLifetime || isPending;
+    aiActivateLifetimeButton.hidden = !needsLifetime;
+    requestAiAccessButton.hidden = isPending || needsLifetime;
+    aiPaymentReference.disabled = isPending;
+    aiPaymentCurrency.disabled = isPending;
+    aiPaymentMethod.disabled = isPending;
+    aiRequestStatus.classList.remove('error');
   }
   aiReceiptInput.value = '';
   aiTranscriptInput.value = '';
@@ -2111,6 +2198,29 @@ function openAiAssistant() {
     aiReceiptPreviewUrl = '';
   }
   aiAssistantDialog.showModal();
+}
+
+function renderAiPaymentOffer() {
+  const currency = aiPaymentCurrency.value;
+  const amount = currency === 'USD' ? 2.78 : 10;
+  aiPaymentAmount.textContent = formatCurrency(amount, currency);
+  const yapeOption = aiPaymentMethod.querySelector('option[value="yape"]');
+  yapeOption.disabled = currency === 'USD';
+  if (currency === 'USD' && aiPaymentMethod.value === 'yape') {
+    aiPaymentMethod.value = 'transfer';
+  }
+  if (aiPaymentMethod.value === 'yape') {
+    const number = paymentInstructions.yapeNumber;
+    const owner = paymentInstructions.yapeName;
+    aiPaymentInstructions.innerHTML = number
+      ? `<p>Yapea al <strong>${escapeHtml(number)}</strong>${owner ? ` · Titular: ${escapeHtml(owner)}` : ''}. Luego ingresa el número de operación.</p>`
+      : '<p>El administrador aún no configuró un número de Yape.</p>';
+  } else {
+    const accounts = paymentInstructions.bankAccounts;
+    aiPaymentInstructions.innerHTML = accounts
+      ? `<p>${escapeHtml(accounts).replace(/\n/g, '<br>')}</p>`
+      : '<p>El administrador aún no configuró cuentas bancarias.</p>';
+  }
 }
 
 function maybeStartOnboarding(force = false) {
@@ -2132,8 +2242,10 @@ function renderOnboardingStep() {
   onboardingDescription.textContent = step.description;
   previousOnboardingButton.disabled = onboardingStep === 0;
   nextOnboardingButton.textContent = onboardingStep === onboardingSteps.length - 1 ? 'Terminar' : 'Siguiente';
-  const targetPage = document.querySelector(step.target)?.closest('[data-app-page]')?.dataset.appPage;
-  if (targetPage && window.matchMedia('(max-width: 760px)').matches) setAppPage(targetPage);
+  setAppPage(step.page, { scroll: false });
+  if (step.hash) {
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${step.hash}`);
+  }
   const target = document.querySelector(step.target);
   if (!target) {
     onboardingSpotlight.hidden = true;
@@ -2181,10 +2293,8 @@ async function finishOnboarding() {
     await apiRequest('complete-onboarding', { method: 'POST', body: {} });
     currentUser.onboardingCompleted = true;
     onboardingDialog.close();
-    if (window.matchMedia('(max-width: 760px)').matches) {
-      setAppPage('summary', { scroll: true });
-      history.replaceState(null, '', `${window.location.pathname}${window.location.search}#overview`);
-    }
+    setAppPage('summary', { scroll: true });
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}#overview`);
   } catch (error) {
     onboardingStatus.textContent = error.message;
     onboardingStatus.classList.add('error');
@@ -2196,14 +2306,28 @@ async function finishOnboarding() {
 
 async function requestAiSubscription() {
   requestAiAccessButton.disabled = true;
+  aiRequestStatus.classList.remove('error');
   try {
-    const result = await apiRequest('ai-subscription-request', { method: 'POST', body: {} });
+    const currency = aiPaymentCurrency.value;
+    const result = await apiRequest('ai-subscription-request', {
+      method: 'POST',
+      body: {
+        paymentMethod: aiPaymentMethod.value,
+        paymentCurrency: currency,
+        paymentAmount: currency === 'USD' ? 2.78 : 10,
+        paymentReference: aiPaymentReference.value.trim()
+      }
+    });
     showAppNotice(result.message);
     aiAssistantAccess.requestStatus = 'pending';
     aiRequestStatus.textContent = 'Solicitud enviada. Te habilitaremos el servicio cuando el administrador confirme el pago.';
     requestAiAccessButton.hidden = true;
+    aiPaymentReference.disabled = true;
+    aiPaymentCurrency.disabled = true;
+    aiPaymentMethod.disabled = true;
   } catch (error) {
-    setAiAssistantStatus(error.message, true);
+    aiRequestStatus.textContent = error.message;
+    aiRequestStatus.classList.add('error');
   } finally {
     requestAiAccessButton.disabled = false;
   }
@@ -2612,7 +2736,7 @@ function renderDebts() {
   if (!debts.length) {
     debtsList.innerHTML = `<p class="empty-state">${featureAccess.debts
       ? 'Aún no registras préstamos o deudas.'
-      : 'Tus préstamos y pagos aparecerán aquí al activar un plan Mensual o Anual.'}</p>`;
+      : 'Tus préstamos y pagos aparecerán aquí al activar el acceso de por vida.'}</p>`;
   } else {
     debtsList.innerHTML = debts.map((debt) => {
       const history = debtPayments.filter((payment) => payment.debtId === debt.id);
@@ -2769,12 +2893,16 @@ function renderPlans() {
     document.getElementById('currentPlanSummary').textContent =
       `Tu plan actual es Gratis.${hasPendingPlanRequest ? ' Tienes un pago pendiente de revisión.' : ''}`;
   }
-  document.getElementById('planCards').innerHTML = subscriptionPlans.map((plan) => {
-    const paid = ['monthly', 'yearly'].includes(plan.billingPeriod);
+  document.getElementById('planCards').innerHTML = subscriptionPlans
+    .filter((plan) => !(plan.billingPeriod === 'lifetime' && currentSubscription?.billingPeriod === 'lifetime'))
+    .map((plan) => {
+    const paid = ['lifetime', 'monthly', 'yearly'].includes(plan.billingPeriod);
     const price = plan.billingPeriod === 'yearly'
       ? `${formatCurrency(plan.priceAmount, plan.priceCurrency)} al año`
       : plan.billingPeriod === 'monthly'
         ? `${formatCurrency(plan.priceAmount, plan.priceCurrency)} al mes`
+        : plan.billingPeriod === 'lifetime'
+          ? `${formatCurrency(plan.priceAmount, plan.priceCurrency)} · pago único`
         : 'Gratis';
     const features = plan.features.length
       ? `<ul>${plan.features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join('')}</ul>`
@@ -3322,7 +3450,7 @@ function renderBudget(entries) {
   if (!budgets.length) {
     budgetList.innerHTML = `<p class="empty-state">${featureAccess.budgets
       ? 'Aún no defines límites mensuales. Agrega un presupuesto para vigilar una categoría.'
-      : 'Tus presupuestos aparecerán aquí al activar un plan Mensual o Anual.'}</p>`;
+      : 'Tus presupuestos aparecerán aquí al activar el acceso de por vida.'}</p>`;
     return;
   }
   budgetList.innerHTML = budgets.map((budget) => {

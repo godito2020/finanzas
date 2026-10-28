@@ -81,11 +81,11 @@
 
           <form class="auth-form required-payment-form" id="requiredPaymentForm" hidden>
             <p class="eyebrow">ACTIVA TU ACCESO</p>
-            <p>Para comenzar a usar Finanza, realiza el pago de tu suscripción mensual. El acceso se habilitará cuando el administrador confirme la operación.</p>
+            <p>Activa Finanza con un único pago de por vida. El registro inteligente con IA es opcional y cuesta S/ 10 al mes, con renovación manual.</p>
             <div class="required-payment-price">
-              <span>Mensualidad</span>
-              <strong id="requiredPaymentAmount">S/ 10.00</strong>
-              <small id="requiredPaymentEquivalent">USD 2.78 · tipo de cambio fijo S/ 3.60 por USD</small>
+              <span>Pago único · acceso de por vida</span>
+              <strong id="requiredPaymentAmount">S/ 30.00</strong>
+              <small id="requiredPaymentEquivalent">USD 8.33 · tipo de cambio fijo S/ 3.60 por USD</small>
             </div>
             <label for="requiredPaymentCurrency">Moneda del pago</label>
             <select id="requiredPaymentCurrency">
@@ -729,7 +729,7 @@
           </section>
           <section class="panel admin-section">
             <div class="panel-header"><div><p class="eyebrow">GESTIÓN FLEXIBLE</p><h2>Opciones y suscripciones</h2></div></div>
-            <div class="admin-subsection-heading"><div><h3>Solicitudes de IA Pro</h3><p class="section-description">Verifica el pago fuera de la aplicación y confirma la activación para habilitar 30 días. La renovación mensual es manual.</p></div></div>
+            <div class="admin-subsection-heading"><div><h3>Solicitudes de IA Pro</h3><p class="section-description">Verifica el pago mensual fuera de la aplicación y confirma la activación por un mes. La renovación es manual.</p></div></div>
             <div id="aiSubscriptionRequestsList" class="admin-record-list" aria-live="polite"></div>
             <div class="admin-subsection-heading"><div><h3>Crear opción</h3><p class="section-description">Define el nombre, las características y una descripción para la opción.</p></div></div>
             <form id="subscriptionOptionForm" class="subscription-option-create-form">
@@ -793,9 +793,25 @@
       </div>
       <p class="section-description">Sube la foto de un comprobante o dicta un movimiento. La IA analizará los datos y completará el formulario; revisa el resultado antes de guardarlo. La foto y el texto reconocido se envían al servicio de IA configurado y no se guardan en Finanza. El dictado depende del servicio de voz de tu navegador.</p>
       <section class="ai-paid-offer" id="aiPaidOffer" hidden>
-        <h3>Finanza Pro: S/ 10 al mes</h3>
-        <p>Suscripción mensual recurrente. Paga por el medio indicado por el administrador y solicita la activación. El acceso se habilita tras verificar el pago y dura 30 días; la renovación es manual y no se realizan cobros automáticos.</p>
-        <button class="button button-primary wide" id="requestAiAccessButton" type="button">Ya pagué · Solicitar activación</button>
+        <h3>IA opcional: <strong id="aiPaymentAmount">S/ 10.00</strong> al mes</h3>
+        <p>Requiere la activación de por vida de Finanza. El pago y la renovación son manuales; el administrador verificará cada operación. Los cobros automáticos se integrarán más adelante.</p>
+        <div id="aiPaymentControls">
+          <label for="aiPaymentCurrency">Moneda del pago</label>
+          <select id="aiPaymentCurrency">
+            <option value="PEN">Soles (PEN)</option>
+            <option value="USD">Dólares (USD)</option>
+          </select>
+          <label for="aiPaymentMethod">Método de pago</label>
+          <select id="aiPaymentMethod">
+            <option value="yape">Yape (soles)</option>
+            <option value="transfer">Transferencia bancaria</option>
+          </select>
+          <div class="plan-payment-instructions" id="aiPaymentInstructions"></div>
+          <label for="aiPaymentReference">Número de operación o referencia</label>
+          <input id="aiPaymentReference" maxlength="120" required />
+          <button class="button button-primary wide" id="requestAiAccessButton" type="button">Ya pagué · Solicitar activación</button>
+        </div>
+        <button class="button button-quiet wide" id="aiActivateLifetimeButton" type="button" hidden>Activar Finanza por S/ 30</button>
         <p class="auth-message" id="aiRequestStatus" role="status" aria-live="polite"></p>
       </section>
       <div class="ai-assistant-tools" id="aiAssistantTools">

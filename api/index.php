@@ -296,6 +296,10 @@ function database(): PDO
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             status TEXT NOT NULL DEFAULT \'pending\' CHECK(status IN (\'pending\', \'paid\', \'rejected\')),
+            payment_method TEXT,
+            payment_reference TEXT,
+            payment_currency TEXT,
+            payment_amount REAL,
             requested_at INTEGER NOT NULL,
             processed_at INTEGER
         );
@@ -368,12 +372,34 @@ function database(): PDO
     if (!in_array('payment_amount', $paymentRequestColumns, true)) {
         $connection->exec('ALTER TABLE plan_payment_requests ADD COLUMN payment_amount REAL NOT NULL DEFAULT 0');
     }
+    $aiRequestColumns = array_column($connection->query('PRAGMA table_info(ai_subscription_requests)')->fetchAll(), 'name');
+    if (!in_array('payment_method', $aiRequestColumns, true)) {
+        $connection->exec('ALTER TABLE ai_subscription_requests ADD COLUMN payment_method TEXT');
+    }
+    if (!in_array('payment_reference', $aiRequestColumns, true)) {
+        $connection->exec('ALTER TABLE ai_subscription_requests ADD COLUMN payment_reference TEXT');
+    }
+    if (!in_array('payment_currency', $aiRequestColumns, true)) {
+        $connection->exec('ALTER TABLE ai_subscription_requests ADD COLUMN payment_currency TEXT');
+    }
+    if (!in_array('payment_amount', $aiRequestColumns, true)) {
+        $connection->exec('ALTER TABLE ai_subscription_requests ADD COLUMN payment_amount REAL');
+    }
     $connection->exec(
         "INSERT OR IGNORE INTO subscription_options (name, description, features_json, billing_period, price_amount, price_currency, trial_days, active, created_at)
          VALUES
          ('Gratis', 'Registro financiero básico, resumen y una meta de ahorro.', '[]', 'free', 0, 'PEN', 0, 1, strftime('%s','now')),
+         ('Activación de por vida', 'Pago único de S/ 30.00 para activar Finanza de por vida. Registro inteligente con IA opcional por S/ 10.00 al mes.', '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]', 'lifetime', 30, 'PEN', 0, 1, strftime('%s','now')),
          ('Mensual', 'Funciones Pro por S/ 10 al mes. Acceso habilitado tras confirmar el pago.', '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]', 'monthly', 10, 'PEN', 0, 1, strftime('%s','now')),
          ('Anual', 'Funciones Pro por S/ 150 al año.', '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]', 'yearly', 150, 'PEN', 10, 1, strftime('%s','now'))"
+    );
+    $connection->exec(
+        "UPDATE subscription_options
+         SET description = 'Pago único de S/ 30.00 para activar Finanza de por vida. Registro inteligente con IA opcional por S/ 10.00 al mes.',
+             features_json = '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]',
+             price_amount = 30, price_currency = 'PEN', trial_days = 0
+         WHERE billing_period = 'lifetime' AND active = 1
+           AND (price_amount != 30 OR price_currency != 'PEN' OR trial_days != 0)"
     );
     $connection->exec(
         "UPDATE subscription_options
@@ -383,6 +409,17 @@ function database(): PDO
            AND (price_amount != 10 OR price_currency != 'PEN' OR trial_days != 0)"
     );
     $connection->exec("UPDATE subscription_options SET trial_days = 0 WHERE billing_period = 'yearly'");
+    $lifetimeOptionId = $connection->query(
+        "SELECT id FROM subscription_options WHERE billing_period = 'lifetime' AND active = 1 ORDER BY id LIMIT 1"
+    )->fetchColumn();
+    if ($lifetimeOptionId !== false) {
+        $connection->prepare(
+            "UPDATE plan_payment_requests SET status = 'rejected', processed_at = ?
+             WHERE status = 'pending'
+               AND option_id != ?
+               AND user_id IN (SELECT id FROM users WHERE paid_access_required = 1)"
+        )->execute([time(), (int) $lifetimeOptionId]);
+    }
     $monthlyPlan = $connection->query(
         "SELECT id, trial_days FROM subscription_options WHERE billing_period = 'monthly' AND active = 1 LIMIT 1"
     )->fetch();
@@ -618,7 +655,27 @@ function userHasPaidAccess(array $user): bool
          JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
          WHERE subscription_assignments.user_id = ? AND subscription_assignments.status = 'active'
            AND subscription_assignments.is_trial = 0
-           AND subscription_options.billing_period IN ('monthly', 'yearly')
+           AND subscription_options.billing_period IN ('lifetime', 'monthly', 'yearly')
+           AND subscription_assignments.starts_at <= ?
+           AND (subscription_assignments.ends_at IS NULL OR subscription_assignments.ends_at >= ?)
+         LIMIT 1"
+    );
+    $today = date('Y-m-d');
+    $statement->execute([(int) $user['id'], $today, $today]);
+    return (bool) $statement->fetchColumn();
+}
+
+function userHasLifetimeAccess(array $user): bool
+{
+    if (($user['role'] ?? '') === 'master') {
+        return true;
+    }
+    $statement = database()->prepare(
+        "SELECT 1 FROM subscription_assignments
+         JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
+         WHERE subscription_assignments.user_id = ? AND subscription_assignments.status = 'active'
+           AND subscription_assignments.is_trial = 0
+           AND subscription_options.billing_period = 'lifetime'
            AND subscription_assignments.starts_at <= ?
            AND (subscription_assignments.ends_at IS NULL OR subscription_assignments.ends_at >= ?)
          LIMIT 1"
@@ -1041,7 +1098,7 @@ function userHasSubscriptionFeature(array $user, string $feature): bool
 function requireSubscriptionFeature(array $user, string $feature): void
 {
     if (!userHasSubscriptionFeature($user, $feature)) {
-        throw new ApiError(403, 'Esta función está disponible en los planes Mensual y Anual. Revisa Plan y suscripción para actualizar.');
+        throw new ApiError(403, 'Esta función requiere un plan de pago que la incluya. Revisa Plan y suscripción para actualizar.');
     }
 }
 
@@ -1366,8 +1423,8 @@ function handleRequest(string $action, string $method, array $data): array
         $options = $db->query(
             "SELECT id, name, description, features_json AS featuresJson, billing_period AS billingPeriod,
                     price_amount AS priceAmount, price_currency AS priceCurrency, trial_days AS trialDays
-             FROM subscription_options WHERE active = 1 AND billing_period IN ('free', 'monthly', 'yearly')
-             ORDER BY CASE billing_period WHEN 'free' THEN 0 WHEN 'monthly' THEN 1 ELSE 2 END"
+             FROM subscription_options WHERE active = 1 AND billing_period IN ('free', 'lifetime')
+             ORDER BY CASE billing_period WHEN 'free' THEN 0 ELSE 1 END"
         )->fetchAll();
         foreach ($options as &$option) {
             $option['id'] = (int) $option['id'];
@@ -1675,7 +1732,7 @@ function handleRequest(string $action, string $method, array $data): array
     $userId = (int) $user['id'];
     if (!userHasPaidAccess($user) &&
         !in_array($action, ['me', 'logout', 'plans', 'plan-status', 'plan-request', 'public-settings'], true)) {
-        throw new ApiError(402, 'Completa el pago mensual para habilitar el acceso a Finanza.');
+        throw new ApiError(402, 'Completa el pago único de activación de por vida para habilitar el acceso a Finanza.');
     }
 
     if ($action === 'suggestion' && $method === 'POST') {
@@ -1711,7 +1768,8 @@ function handleRequest(string $action, string $method, array $data): array
              WHERE subscription_assignments.user_id = ? AND subscription_assignments.status = 'active'
                AND subscription_assignments.starts_at <= ?
                AND (subscription_assignments.ends_at IS NULL OR subscription_assignments.ends_at >= ?)
-             ORDER BY CASE WHEN subscription_options.billing_period IN ('monthly', 'yearly') THEN 0 ELSE 1 END,
+             ORDER BY CASE subscription_options.billing_period
+                          WHEN 'lifetime' THEN 0 WHEN 'monthly' THEN 1 WHEN 'yearly' THEN 2 ELSE 3 END,
                       subscription_assignments.starts_at DESC, subscription_assignments.id DESC LIMIT 1"
         );
         $current->execute([$userId, $today, $today]);
@@ -1736,6 +1794,7 @@ function handleRequest(string $action, string $method, array $data): array
             'subscription' => $subscription,
             'hasPendingRequest' => (bool) $pending->fetchColumn(),
             'accessAllowed' => userHasPaidAccess($user),
+            'lifetimeAccess' => userHasLifetimeAccess($user),
             'featureAccess' => [
                 'payments' => in_array('Pagos y deudas', $features, true),
                 'debts' => in_array('Pagos y deudas', $features, true),
@@ -1752,12 +1811,15 @@ function handleRequest(string $action, string $method, array $data): array
         $period = $data['billingPeriod'] ?? null;
         $methodName = $data['paymentMethod'] ?? null;
         $reference = requiredString($data, 'paymentReference', 120);
-        if (!in_array($period, ['monthly', 'yearly'], true) ||
+        if ($period !== 'lifetime' ||
             !in_array($methodName, ['yape', 'transfer'], true)) {
-            throw new ApiError(422, 'Selecciona un plan y un método de pago manual válido.');
+            throw new ApiError(422, 'La activación disponible es de por vida y se paga una sola vez.');
         }
-        if ((int) ($user['paid_access_required'] ?? 0) && $period !== 'monthly') {
-            throw new ApiError(422, 'La suscripción inicial disponible es mensual.');
+        if ((int) ($user['paid_access_required'] ?? 0) && !userHasLifetimeAccess($user) && $period !== 'lifetime') {
+            throw new ApiError(422, 'Primero debes solicitar la activación de por vida por S/ 30.');
+        }
+        if ($period === 'lifetime' && userHasLifetimeAccess($user)) {
+            throw new ApiError(409, 'Tu cuenta ya tiene acceso de por vida.');
         }
         $paymentCurrency = strtoupper((string) ($data['paymentCurrency'] ?? 'PEN'));
         if (!in_array($paymentCurrency, ['PEN', 'USD'], true)) {
@@ -1815,6 +1877,29 @@ function handleRequest(string $action, string $method, array $data): array
         if (($user['role'] ?? '') === 'master' || userHasAiAssistant($user)) {
             throw new ApiError(409, 'Tu cuenta ya tiene acceso al registro inteligente.');
         }
+        if (($user['role'] ?? '') !== 'master' && !userHasLifetimeAccess($user)) {
+            throw new ApiError(403, 'Activa primero tu cuenta con el pago único de S/ 30.');
+        }
+        $paymentMethod = $data['paymentMethod'] ?? null;
+        $paymentCurrency = strtoupper((string) ($data['paymentCurrency'] ?? ''));
+        $paymentReference = requiredString($data, 'paymentReference', 120);
+        if (!in_array($paymentMethod, ['yape', 'transfer'], true) ||
+            !in_array($paymentCurrency, ['PEN', 'USD'], true)) {
+            throw new ApiError(422, 'Selecciona moneda y método de pago para la mensualidad de IA.');
+        }
+        if ($paymentCurrency === 'USD' && $paymentMethod === 'yape') {
+            throw new ApiError(422, 'Los pagos en dólares deben realizarse por transferencia bancaria.');
+        }
+        if (($paymentMethod === 'yape' && appSetting('yape_number') === '') ||
+            ($paymentMethod === 'transfer' && appSetting('bank_accounts') === '')) {
+            throw new ApiError(422, 'El administrador aún no configuró los datos de este método de pago.');
+        }
+        $expectedAmount = $paymentCurrency === 'USD' ? 2.78 : 10.00;
+        $submittedAmount = $data['paymentAmount'] ?? $expectedAmount;
+        if (!is_numeric($submittedAmount) || !is_finite((float) $submittedAmount) ||
+            abs((float) $submittedAmount - $expectedAmount) > 0.009) {
+            throw new ApiError(422, 'El importe no coincide con la mensualidad de IA y el tipo de cambio vigente.');
+        }
         enforceRateLimit('ai-subscription-request:' . $userId, 3, 2592000);
         $pending = $db->prepare(
             "SELECT 1 FROM ai_subscription_requests WHERE user_id = ? AND status = 'pending' LIMIT 1"
@@ -1825,8 +1910,10 @@ function handleRequest(string $action, string $method, array $data): array
         }
         try {
             $db->prepare(
-                "INSERT INTO ai_subscription_requests (user_id, status, requested_at) VALUES (?, 'pending', ?)"
-            )->execute([$userId, time()]);
+                "INSERT INTO ai_subscription_requests
+                    (user_id, status, payment_method, payment_reference, payment_currency, payment_amount, requested_at)
+                 VALUES (?, 'pending', ?, ?, ?, ?, ?)"
+            )->execute([$userId, $paymentMethod, $paymentReference, $paymentCurrency, $expectedAmount, time()]);
         } catch (PDOException $error) {
             if (str_contains(strtolower($error->getMessage()), 'unique')) {
                 throw new ApiError(409, 'Ya tienes una solicitud pendiente de revisión.');
@@ -2188,6 +2275,10 @@ function handleRequest(string $action, string $method, array $data): array
             $aiRequests = $db->query(
                 'SELECT ai_subscription_requests.id, ai_subscription_requests.user_id AS userId,
                         ai_subscription_requests.status, ai_subscription_requests.requested_at AS requestedAt,
+                        ai_subscription_requests.payment_method AS paymentMethod,
+                        ai_subscription_requests.payment_reference AS paymentReference,
+                        ai_subscription_requests.payment_currency AS paymentCurrency,
+                        ai_subscription_requests.payment_amount AS paymentAmount,
                         users.name, users.email
                  FROM ai_subscription_requests
                  JOIN users ON users.id = ai_subscription_requests.user_id
@@ -2197,6 +2288,7 @@ function handleRequest(string $action, string $method, array $data): array
                 $request['id'] = (int) $request['id'];
                 $request['userId'] = (int) $request['userId'];
                 $request['requestedAt'] = (int) $request['requestedAt'];
+                $request['paymentAmount'] = $request['paymentAmount'] === null ? null : (float) $request['paymentAmount'];
             }
             unset($request);
             return ['options' => $options, 'assignments' => $assignments, 'users' => $users, 'aiRequests' => $aiRequests];
@@ -2254,29 +2346,36 @@ function handleRequest(string $action, string $method, array $data): array
                     );
                     $planStatement->execute([(int) $pendingRequest['option_id']]);
                     $period = $planStatement->fetchColumn();
-                    if (!in_array($period, ['monthly', 'yearly'], true)) {
+                    if (!in_array($period, ['lifetime', 'monthly', 'yearly'], true)) {
                         throw new ApiError(409, 'El plan de esta solicitud ya no está disponible.');
                     }
                     $today = new DateTimeImmutable('today');
-                    $priorEnd = $db->prepare(
-                        "SELECT MAX(ends_at) FROM subscription_assignments
-                         WHERE user_id = ? AND status = 'active' AND ends_at >= ? AND is_trial = 0"
-                    );
-                    $priorEnd->execute([(int) $pendingRequest['user_id'], $today->format('Y-m-d')]);
-                    $existingEnd = $priorEnd->fetchColumn();
                     $start = $today;
-                    if (is_string($existingEnd) && $existingEnd >= $today->format('Y-m-d')) {
-                        $start = (new DateTimeImmutable($existingEnd))->modify('+1 day');
+                    $end = null;
+                    if ($period !== 'lifetime') {
+                        $priorEnd = $db->prepare(
+                            "SELECT MAX(ends_at) FROM subscription_assignments
+                             WHERE user_id = ? AND status = 'active' AND ends_at >= ? AND is_trial = 0"
+                        );
+                        $priorEnd->execute([(int) $pendingRequest['user_id'], $today->format('Y-m-d')]);
+                        $existingEnd = $priorEnd->fetchColumn();
+                        if (is_string($existingEnd) && $existingEnd >= $today->format('Y-m-d')) {
+                            $start = (new DateTimeImmutable($existingEnd))->modify('+1 day');
+                        }
+                        $end = subscriptionPeriodEnd($start, (string) $period)->format('Y-m-d');
                     }
-                    $end = subscriptionPeriodEnd($start, (string) $period);
                     $db->prepare(
                         "INSERT INTO subscription_assignments
                             (user_id, option_id, status, starts_at, ends_at, is_trial, created_at)
                          VALUES (?, ?, 'active', ?, ?, 0, ?)"
                     )->execute([
                         (int) $pendingRequest['user_id'], (int) $pendingRequest['option_id'],
-                        $start->format('Y-m-d'), $end->format('Y-m-d'), time()
+                        $start->format('Y-m-d'), $end, time()
                     ]);
+                    if ($period === 'lifetime') {
+                        $db->prepare('UPDATE users SET paid_access_required = 0 WHERE id = ?')
+                            ->execute([(int) $pendingRequest['user_id']]);
+                    }
                 }
                 $db->commit();
             } catch (Throwable $error) {
@@ -2434,7 +2533,7 @@ function handleRequest(string $action, string $method, array $data): array
                     $startsAt = is_string($currentEnd) && $currentEnd >= $today
                         ? date('Y-m-d', strtotime($currentEnd . ' +1 day'))
                         : $today;
-                    $endsAt = date('Y-m-d', strtotime($startsAt . ' +30 days'));
+                    $endsAt = (new DateTimeImmutable($startsAt))->modify('+1 month')->format('Y-m-d');
                     $db->prepare(
                         "INSERT INTO subscription_assignments (user_id, option_id, status, starts_at, ends_at, created_at)
                          VALUES (?, ?, 'active', ?, ?, ?)"
@@ -2446,7 +2545,7 @@ function handleRequest(string $action, string $method, array $data): array
                 throw $error;
             }
             return ['message' => $decision === 'paid'
-                ? 'Pago confirmado y acceso habilitado por 30 días.'
+                ? 'Pago confirmado y acceso habilitado por un mes.'
                 : 'Solicitud rechazada.'];
         }
         throw new ApiError(405, 'Método no permitido.');
@@ -3082,7 +3181,7 @@ function handleRequest(string $action, string $method, array $data): array
             $count = $db->prepare('SELECT COUNT(*) FROM goals WHERE user_id = ?');
             $count->execute([$userId]);
             if ((int) $count->fetchColumn() >= 1) {
-                throw new ApiError(403, 'El plan Gratis incluye una meta de ahorro. Activa Mensual o Anual para crear más metas.');
+                throw new ApiError(403, 'El plan Gratis incluye una meta de ahorro. Activa el acceso de por vida para crear más metas.');
             }
         }
         $name = requiredString($data, 'name', 60);
