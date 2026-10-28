@@ -10,6 +10,18 @@
     <title>Finanza — tus números en orden</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icon.svg" />
+    <script>
+      (() => {
+        let preference = 'system';
+        try {
+          const stored = localStorage.getItem('finanza-theme');
+          if (stored === 'light' || stored === 'dark') preference = stored;
+        } catch {}
+        document.documentElement.dataset.theme = preference === 'system'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : preference;
+      })();
+    </script>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -109,18 +121,28 @@
           <img class="brand-logo" id="appLogo" alt="" hidden />
           <span class="brand-copy">
             <strong class="brand-name">Finanza</strong>
-            <small>tus números, en orden</small>
           </span>
         </a>
-        <div class="account-menu"><span id="accountEmail"></span><button class="button button-reset" type="button" id="logoutButton">Cerrar sesión</button></div>
+        <div class="account-menu">
+          <button class="button button-reset logout-icon-button" type="button" id="logoutButton" aria-label="Cerrar sesión" title="Cerrar sesión">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 17l5-5-5-5M15 12H3m9-7h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-6"/></svg>
+          </button>
+          <span id="accountName"></span>
+        </div>
 
         <p class="nav-heading">TU ESPACIO</p>
         <nav class="nav" aria-label="Navegación principal">
-          <a class="nav-item active" href="#overview"><span aria-hidden="true">⌂</span> Resumen</a>
-          <a class="nav-item" href="#capture"><span aria-hidden="true">＋</span> Nuevo movimiento</a>
-          <a class="nav-item" href="#transactions"><span aria-hidden="true">↕</span> Movimientos</a>
-          <a class="nav-item" href="#payments"><span aria-hidden="true">◷</span> Pagos</a>
-          <a class="nav-item" href="#goals"><span aria-hidden="true">◎</span> Metas</a>
+          <a class="nav-item active" data-page="summary" href="#overview"><span aria-hidden="true">⌂</span> Resumen</a>
+          <a class="nav-item" data-page="capture" href="#capture"><span aria-hidden="true">＋</span> Nuevo movimiento</a>
+          <a class="nav-item" data-page="transactions" href="#transactions"><span aria-hidden="true">↕</span> Movimientos</a>
+          <a class="nav-item" data-page="agenda" href="#payments"><span aria-hidden="true">◷</span> Pagos</a>
+          <a class="nav-item" data-page="debts" href="#debts"><span aria-hidden="true">↗</span> Deudas</a>
+          <a class="nav-item" data-page="emergency" href="#emergencyFund"><span aria-hidden="true">♡</span> Fondo de emergencia</a>
+          <a class="nav-item" data-page="categories" href="#categories"><span aria-hidden="true">▦</span> Categorías</a>
+          <a class="nav-item" data-page="goals" href="#goals"><span aria-hidden="true">◎</span> Metas</a>
+          <a class="nav-item" data-page="budgets" href="#dashboardBudgets"><span aria-hidden="true">▤</span> Presupuestos</a>
+          <a class="nav-item" data-page="plans" href="#subscriptionPlans"><span aria-hidden="true">✦</span> Planes</a>
+          <a class="nav-item" data-page="reports" href="#reports"><span aria-hidden="true">▧</span> Reportes</a>
         </nav>
 
         <div class="sidebar-note">
@@ -133,24 +155,46 @@
       <main class="content" id="overview">
         <header class="topbar">
           <div class="welcome-copy">
-            <p class="eyebrow">TU RESUMEN FINANCIERO</p>
-            <h1>Hola, aquí está tu dinero.</h1>
-            <p id="monthLabel" class="month-label">Mes actual</p>
+            <p class="eyebrow" id="pageEyebrow">TU RESUMEN FINANCIERO</p>
+            <h1 id="pageTitle">Hola, aquí está tu dinero.</h1>
           </div>
           <div class="topbar-actions">
-            <button class="button button-report" type="button" id="reportButton">
-              <span aria-hidden="true">↓</span> Descargar reporte PDF
-            </button>
-            <button class="button button-reset" type="button" id="restartOnboardingButton">Ver guía</button>
-            <a class="button button-reset" href="./manual/index.html" target="_blank" rel="noopener noreferrer">Manual de usuario</a>
-            <button class="button button-reset" type="button" id="openSuggestionButton">Enviar sugerencia</button>
-            <button class="button button-install install-button" type="button" id="installButton" hidden>Instalar app</button>
-            <button class="button button-reset" type="button" id="adminPanelButton" hidden>Administración</button>
+            <details class="utility-menu">
+              <summary class="button button-quiet" aria-label="Abrir opciones">Opciones <span aria-hidden="true">⋯</span></summary>
+              <div class="utility-menu-panel">
+                <details class="theme-settings">
+                  <summary><span class="utility-icon" aria-hidden="true">◐</span><span>Apariencia</span><span class="utility-chevron" aria-hidden="true">⌄</span></summary>
+                  <select id="themePreferenceInput" aria-label="Preferencia de apariencia">
+                    <option value="system">Según el sistema</option>
+                    <option value="light">Claro</option>
+                    <option value="dark">Oscuro</option>
+                  </select>
+                </details>
+                <section class="utility-menu-section" aria-label="Accesos rápidos">
+                  <p>ACCESOS RÁPIDOS</p>
+                  <div class="utility-menu-grid">
+                    <a class="utility-action" href="#emergencyFund"><span aria-hidden="true">♡</span>Fondo de emergencia</a>
+                    <a class="utility-action" href="#payments"><span aria-hidden="true">◷</span>Pagos programados</a>
+                    <a class="utility-action" href="#debts"><span aria-hidden="true">↗</span>Pagos y deudas</a>
+                    <a class="utility-action" href="#reports"><span aria-hidden="true">▤</span>Reportes</a>
+                  </div>
+                </section>
+                <section class="utility-menu-section" aria-label="Ayuda y recursos">
+                  <p>AYUDA Y RECURSOS</p>
+                  <button class="utility-action" type="button" id="restartOnboardingButton"><span aria-hidden="true">✦</span>Ver guía</button>
+                  <a class="utility-action" href="./manual/index.html" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">▣</span>Manual de usuario</a>
+                  <button class="utility-action" type="button" id="openSuggestionButton"><span aria-hidden="true">✉</span>Enviar sugerencia</button>
+                </section>
+                <button class="button button-quiet" type="button" id="adminPanelButton" hidden>Administración</button>
+              </div>
+            </details>
           </div>
         </header>
+        <button class="button button-install install-button" type="button" id="installButton" hidden aria-label="Instalar Finanza">↓ Instalar app</button>
         <p class="app-notice" id="appNotice" role="status" aria-live="polite" hidden></p>
         <p class="app-notice currency-history-notice" id="currencyHistoryNotice" role="status" hidden></p>
 
+        <section class="app-page app-page-summary" data-app-page="summary">
         <section class="panel dashboard-filters" aria-label="Período del resumen">
           <div class="dashboard-periods" role="group" aria-label="Filtrar resumen">
             <button type="button" class="period-button" data-period="week">Semana</button>
@@ -170,12 +214,12 @@
           <article class="panel dashboard-highlight">
             <span class="card-icon expense-icon" aria-hidden="true">▤</span>
             <div><small id="debtSummaryLabel">Deudas registradas</small><strong id="debtSummaryValue">S/ 0.00</strong></div>
-            <a href="#debts">Ver pagos</a>
+            <a href="#debts">Ver deudas</a>
           </article>
           <article class="panel dashboard-highlight">
             <span class="card-icon savings-icon" aria-hidden="true">◎</span>
-            <div><small>Fondo de emergencia · meta sugerida</small><strong id="emergencyFundValue">S/ 0.00 / S/ 0.00</strong><small id="emergencyFundProgress">Basado en tus gastos de los últimos 6 meses.</small></div>
-            <a href="#planning">Configurar</a>
+            <div><small>Fondo de emergencia · meta sugerida</small><strong id="emergencyFundValue">S/ 0.00 / S/ 0.00</strong><small id="emergencyFundSummaryProgress">Basado en tus gastos de los últimos 6 meses.</small></div>
+            <a href="#emergencyFund">Configurar</a>
           </article>
         </section>
 
@@ -219,18 +263,6 @@
         </section>
 
         <section class="dashboard-lower-grid">
-          <section class="panel budget-panel" id="dashboardBudgets">
-            <div class="panel-header">
-              <div><p class="eyebrow">PLANIFICA TU MES</p><h2>Presupuestos por categoría</h2></div>
-            </div>
-            <form id="budgetForm" class="budget-form">
-              <select id="budgetCategoryInput" aria-label="Categoría del presupuesto" required></select>
-              <input id="budgetAmountInput" type="number" min="0.01" step="0.01" placeholder="Límite mensual" aria-label="Límite mensual" required />
-              <button class="button button-primary" type="submit">Agregar</button>
-            </form>
-            <p class="premium-feature-notice" id="budgetUpgradeNotice" hidden>Los presupuestos por categoría están disponibles en los planes Mensual y Anual. <a href="#subscriptionPlans">Ver planes</a></p>
-            <div id="budgetList" class="budget-list" aria-live="polite"></div>
-          </section>
           <section class="panel dashboard-pending-panel">
             <div class="panel-header"><div><p class="eyebrow">POR ATENDER</p><h2>Vencimientos próximos</h2></div><a href="#payments">Ver agenda</a></div>
             <div id="dashboardPendingList" class="dashboard-compact-list" aria-live="polite"></div>
@@ -240,14 +272,16 @@
             <div id="dashboardRecentList" class="dashboard-compact-list" aria-live="polite"></div>
           </section>
         </section>
+        </section>
 
+        <section class="app-page app-page-agenda" data-app-page="agenda">
         <section class="panel-grid payment-section" id="payments">
           <section class="panel payment-agenda-panel">
             <div class="panel-header">
               <div><p class="eyebrow">PLANIFICA TUS VENCIMIENTOS</p><h2>Agenda de pagos</h2></div>
             </div>
             <p class="section-description">Consulta tus próximos vencimientos. Con el servicio de avisos del servidor configurado, recibirás un correo un día antes y el día del pago a la hora indicada.</p>
-            <p class="premium-feature-notice" id="paymentsUpgradeNotice" hidden>Programar, marcar y recibir alertas de pagos requiere un plan Mensual o Anual. <a href="#subscriptionPlans">Ver planes</a></p>
+            <p class="premium-feature-notice" id="paymentsUpgradeNotice" hidden>Esta función avanzada requiere un plan de pago. <button class="button-text" type="button" data-open-plans>Ver planes</button></p>
             <p class="premium-feature-note" id="dailyAlertNote">El resumen diario por correo se envía a las 7 a. m. local e incluye vencidos, pagos de hoy y los próximos 7 días cuando el servidor tiene el cron configurado.</p>
             <div class="payment-calendar-heading">
               <button class="button button-quiet" id="previousPaymentMonth" type="button" aria-label="Mes anterior">‹</button>
@@ -261,36 +295,6 @@
             <div class="payment-list" id="upcomingPaymentsList" aria-live="polite"></div>
           </section>
 
-          <section class="panel-grid debt-section" id="debts">
-            <section class="panel debt-summary-panel">
-              <div class="panel-header">
-                <div><p class="eyebrow">ORGANIZA TUS PRÉSTAMOS</p><h2>Pagos y deudas</h2></div>
-              </div>
-              <p class="section-description">Registra cada deuda y anota cuánto de cada pago va a capital y cuánto a intereses o cargos. Cada pago también queda como gasto.</p>
-              <div class="debt-total-summary"><span>Saldo total pendiente</span><strong id="debtTotalValue">S/ 0.00</strong><small id="debtCountLabel">0 deudas pendientes</small></div>
-              <div id="debtsList" class="debts-list" aria-live="polite"></div>
-              <p class="premium-feature-notice" id="debtUpgradeNotice" hidden>Registrar préstamos y pagos de deuda requiere un plan Mensual o Anual. <a href="#subscriptionPlans">Ver planes</a></p>
-              <h3>Historial de pagos</h3>
-              <div id="debtPaymentsList" class="dashboard-compact-list" aria-live="polite"></div>
-            </section>
-            <section class="panel debt-form-panel">
-              <div class="panel-header"><div><p class="eyebrow">NUEVA DEUDA</p><h2>Registrar préstamo</h2></div></div>
-              <form id="debtForm">
-                <div class="field-row"><label for="debtNameInput">Nombre del préstamo</label><input id="debtNameInput" maxlength="80" placeholder="Ej. Préstamo del auto" required /></div>
-                <div class="field-row"><label for="debtLenderInput">Banco o entidad</label><input id="debtLenderInput" maxlength="100" placeholder="Ej. Banco o cooperativa" required /></div>
-                <div class="field-row two-cols">
-                  <div><label for="debtAmountInput">Saldo inicial</label><input id="debtAmountInput" type="number" min="0.01" step="0.01" required /></div>
-                  <div><label for="debtCurrencyInput">Moneda</label><select id="debtCurrencyInput"><option value="PEN">Soles (PEN)</option><option value="USD">Dólares (USD)</option><option value="EUR">Euros (EUR)</option></select></div>
-                </div>
-                <div class="field-row" id="debtExchangeRateField" hidden>
-                  <label for="debtExchangeRateInput">Tipo de cambio a moneda principal</label>
-                  <input id="debtExchangeRateInput" type="number" min="0.000001" max="100000" step="0.000001" />
-                  <span class="field-hint" id="debtExchangeRateHint"></span>
-                </div>
-                <button class="button button-primary wide" type="submit">Guardar deuda</button>
-              </form>
-            </section>
-          </section>
           <section class="panel payment-form-panel">
             <div class="panel-header">
               <div><p class="eyebrow">NUEVO RECORDATORIO</p><h2>Programar un pago</h2></div>
@@ -327,7 +331,9 @@
             </form>
           </section>
         </section>
+        </section>
 
+        <section class="app-page app-page-capture" data-app-page="capture">
         <section class="panel-grid" id="capture">
           <section class="panel form-panel">
             <div class="panel-header">
@@ -396,12 +402,50 @@
           </section>
 
         </section>
+        </section>
 
-        <section class="tools-grid" id="planning" aria-label="Categorías y planificación">
-          <section class="panel plan-management-panel" id="subscriptionPlans">
-            <div class="panel-header"><div><p class="eyebrow">TU CUENTA</p><h2>Plan y suscripción</h2></div></div>
+        <section class="tools-grid" id="planningModules" aria-label="Ahorros, deudas y configuración">
+          <section class="panel-grid debt-section app-page app-page-debts" id="debts" data-app-page="debts" data-mobile-page="planning">
+            <section class="panel debt-summary-panel">
+              <div class="panel-header">
+                <div><p class="eyebrow">ORGANIZA TUS PRÉSTAMOS</p><h2>Pagos y deudas</h2></div>
+              </div>
+              <p class="section-description">Registra cada deuda y anota cuánto de cada pago va a capital y cuánto a intereses o cargos. Cada pago también queda como gasto.</p>
+              <div class="debt-total-summary"><span>Saldo total pendiente</span><strong id="debtTotalValue">S/ 0.00</strong><small id="debtCountLabel">0 deudas pendientes</small></div>
+              <div id="debtsList" class="debts-list" aria-live="polite"></div>
+              <p class="premium-feature-notice" id="debtUpgradeNotice" hidden>Registrar préstamos y pagos de deuda requiere un plan de pago. <button class="button-text" type="button" data-open-plans>Ver planes</button></p>
+              <h3>Historial de pagos</h3>
+              <div id="debtPaymentsList" class="dashboard-compact-list" aria-live="polite"></div>
+            </section>
+            <section class="panel debt-form-panel">
+              <details class="debt-form-details" id="debtFormDetails">
+                <summary class="form-disclosure">
+                  <span class="eyebrow">NUEVA DEUDA</span>
+                  <span class="form-disclosure-title">Registrar préstamo</span>
+                  <span class="form-disclosure-icon" aria-hidden="true">＋</span>
+                </summary>
+              <form id="debtForm">
+                <div class="field-row"><label for="debtNameInput">Nombre del préstamo</label><input id="debtNameInput" maxlength="80" placeholder="Ej. Préstamo del auto" required /></div>
+                <div class="field-row"><label for="debtLenderInput">Banco o entidad</label><input id="debtLenderInput" maxlength="100" placeholder="Ej. Banco o cooperativa" required /></div>
+                <div class="field-row two-cols">
+                  <div><label for="debtAmountInput">Saldo inicial</label><input id="debtAmountInput" type="number" min="0.01" step="0.01" required /></div>
+                  <div><label for="debtCurrencyInput">Moneda</label><select id="debtCurrencyInput"><option value="PEN">Soles (PEN)</option><option value="USD">Dólares (USD)</option><option value="EUR">Euros (EUR)</option></select></div>
+                </div>
+                <div class="field-row" id="debtExchangeRateField" hidden>
+                  <label for="debtExchangeRateInput">Tipo de cambio a moneda principal</label>
+                  <input id="debtExchangeRateInput" type="number" min="0.000001" max="100000" step="0.000001" />
+                  <span class="field-hint" id="debtExchangeRateHint"></span>
+                </div>
+                <button class="button button-primary wide" type="submit">Guardar deuda</button>
+              </form>
+              </details>
+            </section>
+          </section>
+          <section class="panel plan-management-panel app-page app-page-plans" id="subscriptionPlans" data-app-page="plans" data-mobile-page="planning">
+            <div class="panel-header"><div><p class="eyebrow">TU CUENTA</p><h2>Funciones avanzadas</h2></div></div>
             <p id="currentPlanSummary" class="section-description" aria-live="polite"></p>
-            <div id="planCards" class="plan-cards" aria-live="polite"></div>
+            <button class="button button-quiet" id="togglePlansButton" type="button" aria-expanded="false">Conocer planes</button>
+            <div id="planCards" class="plan-cards" aria-live="polite" hidden></div>
             <form id="planPaymentForm" class="plan-payment-form" hidden>
               <h3 id="selectedPlanHeading">Solicitar plan</h3>
               <input id="selectedPlanPeriod" type="hidden" />
@@ -417,9 +461,14 @@
               <div class="button-row"><button class="button button-primary" type="submit">Enviar solicitud</button><button class="button button-quiet" id="cancelPlanRequestButton" type="button">Cancelar</button></div>
             </form>
           </section>
-          <section class="panel emergency-fund-panel">
-            <div class="panel-header"><div><p class="eyebrow">PROTECCIÓN FINANCIERA</p><h2>Fondo de emergencia</h2></div></div>
-            <p class="section-description">La sugerencia equivale a seis meses de tus gastos promedio. Puedes ajustar el objetivo y actualizar lo que ya tienes ahorrado.</p>
+          <section class="panel emergency-fund-panel app-page app-page-emergency" id="emergencyFund" data-app-page="emergency" data-mobile-page="planning">
+            <div class="panel-header"><div><p class="eyebrow">PROTECCIÓN FINANCIERA</p><h2>Fondo de emergencia <button class="help-icon" id="emergencyFundHelpButton" type="button" aria-label="¿Para qué sirve el fondo de emergencia?" aria-expanded="false" aria-controls="emergencyFundHelp">?</button></h2></div></div>
+            <p class="section-description">Ahorro reservado para imprevistos importantes, como una emergencia médica o quedarte sin ingresos. No es para gastos cotidianos.</p>
+            <p class="emergency-fund-help" id="emergencyFundHelp" hidden>La meta sugerida es igual a tus gastos registrados de los últimos seis meses, aproximadamente seis meses de gastos. Guarda ese dinero en tu cuenta de ahorro habitual y actualiza aquí cuánto tienes: Finanza solo lleva el control, no mueve tu dinero.</p>
+            <div class="emergency-fund-progress" role="progressbar" aria-label="Progreso del fondo de emergencia" aria-valuemin="0" aria-valuemax="100">
+              <span id="emergencyFundProgressBar"></span>
+            </div>
+            <p class="emergency-fund-progress-label" id="emergencyFundProgress">0% de tu meta</p>
             <form id="emergencyFundForm">
               <div class="field-row two-cols">
                 <div><label for="emergencyTargetInput">Meta (<span class="base-currency-label">PEN</span>)</label><input id="emergencyTargetInput" type="number" min="0.01" step="0.01" required /></div>
@@ -428,7 +477,7 @@
               <button class="button button-primary" type="submit">Guardar fondo</button>
             </form>
           </section>
-          <section class="panel categories-panel">
+          <section class="panel categories-panel app-page app-page-categories" id="categories" data-app-page="categories" data-mobile-page="planning">
             <div class="panel-header">
               <div><p class="eyebrow">ORGANIZA</p><h2>Tus categorías</h2></div>
             </div>
@@ -440,10 +489,13 @@
             <div id="customCategoryList" class="custom-category-list" aria-live="polite"></div>
           </section>
 
-          <article class="panel goal-form-panel">
-            <div class="panel-header">
-              <div><p class="eyebrow">PLANEA A FUTURO</p><h2>Crear una meta</h2></div>
-            </div>
+          <article class="panel goal-form-panel app-page app-page-goals" data-app-page="goals" data-mobile-page="planning">
+            <details class="goal-form-details" id="goalFormDetails">
+              <summary class="form-disclosure">
+                <span class="eyebrow">PLANEA A FUTURO</span>
+                <span class="form-disclosure-title">Crear una meta</span>
+                <span class="form-disclosure-icon" aria-hidden="true">＋</span>
+              </summary>
             <form id="goalForm">
               <div class="field-row">
                 <label for="goalNameInput">Nombre de la meta</label>
@@ -456,11 +508,24 @@
               <div class="field-row"><label for="goalDateInput">Fecha objetivo</label><input id="goalDateInput" name="goalDate" type="date" required /></div>
               <button class="button button-primary wide" type="submit">Guardar meta</button>
             </form>
-            <p class="premium-feature-notice" id="goalUpgradeNotice" hidden>El plan Gratis incluye una meta de ahorro. Los planes Mensual y Anual permiten crear más. <a href="#subscriptionPlans">Ver planes</a></p>
+            </details>
+            <p class="premium-feature-notice" id="goalUpgradeNotice" hidden>El plan Gratis incluye una meta de ahorro. Los planes de pago permiten crear más. <button class="button-text" type="button" data-open-plans>Ver planes</button></p>
           </article>
+          <section class="panel budget-panel app-page app-page-budgets" id="dashboardBudgets" data-app-page="budgets" data-mobile-page="planning">
+            <div class="panel-header">
+              <div><p class="eyebrow">PLANIFICA TU MES</p><h2>Presupuestos por categoría</h2></div>
+            </div>
+            <form id="budgetForm" class="budget-form">
+              <select id="budgetCategoryInput" aria-label="Categoría del presupuesto" required></select>
+              <input id="budgetAmountInput" type="number" min="0.01" step="0.01" placeholder="Límite mensual" aria-label="Límite mensual" required />
+              <button class="button button-primary" type="submit">Agregar</button>
+            </form>
+            <p class="premium-feature-notice" id="budgetUpgradeNotice" hidden>Los presupuestos por categoría están disponibles en los planes de pago. <button class="button-text" type="button" data-open-plans>Ver planes</button></p>
+            <div id="budgetList" class="budget-list" aria-live="polite"></div>
+          </section>
         </section>
 
-        <section class="goals-grid" id="goals">
+        <section class="goals-grid app-page app-page-goals" id="goals" data-app-page="goals" data-mobile-page="planning">
           <article class="panel goals-panel">
             <div class="panel-header">
               <div><p class="eyebrow">PASO A PASO</p><h2>Tus metas</h2></div>
@@ -469,7 +534,7 @@
           </article>
         </section>
 
-        <section class="panel transactions-panel" id="transactions">
+        <section class="panel transactions-panel app-page app-page-transactions" id="transactions" data-app-page="transactions">
           <div class="panel-header panel-header-filter">
             <div><p class="eyebrow">TU HISTORIAL</p><h2>Movimientos</h2></div>
             <div class="filters" id="filterForm">
@@ -490,6 +555,47 @@
             </table>
           </div>
         </section>
+        <section class="app-page app-page-reports" id="reports" data-app-page="reports">
+          <div class="panel reports-heading">
+            <div><p class="eyebrow">ANÁLISIS FINANCIERO</p><h2>Reportes detallados</h2></div>
+            <p class="section-description">Explora tus ingresos y gastos por período, categoría y tipo de movimiento.</p>
+          </div>
+          <section class="panel reports-filters" aria-label="Filtros de reportes">
+            <div class="panel-header"><div><p class="eyebrow">PERSONALIZA TU REPORTE</p><h3>Filtros</h3></div></div>
+            <div class="report-filter-grid">
+              <div><label for="reportPeriodInput">Período</label><select id="reportPeriodInput"><option value="month">Este mes</option><option value="week">Esta semana</option><option value="year">Este año</option><option value="all">Todo el período</option><option value="custom">Rango personalizado</option></select></div>
+              <div><label for="reportTypeInput">Tipo</label><select id="reportTypeInput"><option value="all">Ingresos y gastos</option><option value="income">Solo ingresos</option><option value="expense">Solo gastos</option></select></div>
+              <div><label for="reportCategoryInput">Categoría</label><select id="reportCategoryInput"><option value="all">Todas las categorías</option></select></div>
+              <div><label for="reportGroupInput">Desglosar por</label><select id="reportGroupInput"><option value="category">Categoría</option><option value="month">Mes</option></select></div>
+              <div class="report-date-field" id="reportStartField" hidden><label for="reportStartDate">Desde</label><input id="reportStartDate" type="date" /></div>
+              <div class="report-date-field" id="reportEndField" hidden><label for="reportEndDate">Hasta</label><input id="reportEndDate" type="date" /></div>
+              <div class="report-search-field"><label for="reportSearchInput">Buscar</label><input id="reportSearchInput" type="search" placeholder="Descripción o categoría" /></div>
+            </div>
+            <p class="field-hint">Los totales consideran únicamente movimientos en tu moneda principal (<span class="base-currency-label">PEN</span>).</p>
+          </section>
+          <section class="report-summary-cards" aria-label="Totales del reporte">
+            <article class="panel report-summary-card"><span>Ingresos</span><strong id="reportIncomeValue">—</strong></article>
+            <article class="panel report-summary-card"><span>Gastos</span><strong id="reportExpenseValue">—</strong></article>
+            <article class="panel report-summary-card"><span>Balance</span><strong id="reportBalanceValue">—</strong></article>
+            <article class="panel report-summary-card"><span>Movimientos</span><strong id="reportCountValue">0</strong></article>
+          </section>
+          <section class="panel report-breakdown-panel">
+            <div class="panel-header"><div><p class="eyebrow">DETALLE</p><h3 id="reportBreakdownTitle">Gastos por categoría</h3></div></div>
+            <div id="reportBreakdown" class="report-breakdown" aria-live="polite"></div>
+          </section>
+          <section class="panel report-transactions-panel">
+            <div class="panel-header report-transactions-header">
+              <div><p class="eyebrow">RESULTADOS</p><h3>Movimientos incluidos</h3><p class="section-description" id="reportResultCaption"></p></div>
+              <button class="button button-report" type="button" id="reportButton"><span aria-hidden="true">↓</span> Descargar PDF</button>
+            </div>
+            <div class="table-wrapper">
+              <table>
+                <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th>Monto</th></tr></thead>
+                <tbody id="reportTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
         <section class="admin-panel" id="adminPanel" hidden>
           <div class="panel admin-heading">
             <div><p class="eyebrow">ACCESO MAESTRO</p><h2>Administración de la aplicación</h2></div>
@@ -497,10 +603,10 @@
           </div>
           <section class="panel admin-section">
             <div class="panel-header"><div><p class="eyebrow">CUENTAS</p><h2>Clientes</h2></div></div>
-            <form id="adminUserForm" class="admin-inline-form">
-              <input id="adminUserName" type="text" maxlength="80" placeholder="Nombre" aria-label="Nombre del cliente" required />
-              <input id="adminUserEmail" type="email" maxlength="254" placeholder="Correo electrónico" aria-label="Correo del cliente" required />
-              <input id="adminUserPassword" type="password" minlength="12" placeholder="Contraseña inicial (12+)" aria-label="Contraseña inicial" required />
+            <form id="adminUserForm" class="admin-inline-form admin-create-user-form">
+              <label for="adminUserName">Nombre<input id="adminUserName" type="text" maxlength="80" placeholder="Nombre del cliente" required /></label>
+              <label for="adminUserEmail">Correo electrónico<input id="adminUserEmail" type="email" maxlength="254" placeholder="cliente@correo.com" required /></label>
+              <label for="adminUserPassword">Contraseña inicial<input id="adminUserPassword" type="password" minlength="12" placeholder="Mínimo 12 caracteres" required /></label>
               <button class="button button-primary" type="submit">Agregar cliente</button>
             </form>
             <div id="adminUsersList" class="admin-record-list" aria-live="polite"></div>
@@ -602,20 +708,20 @@
               <button class="button button-primary" type="submit">Crear opción</button>
             </form>
             <div id="subscriptionOptionsList" class="admin-record-list" aria-live="polite"></div>
-            <h3>Asignar una opción a un cliente</h3>
-            <form id="subscriptionAssignmentForm" class="admin-inline-form">
-              <select id="assignmentUserInput" aria-label="Cliente" required><option value="">Selecciona cliente</option></select>
-              <select id="assignmentOptionInput" aria-label="Opción de suscripción" required><option value="">Selecciona opción</option></select>
-              <input id="assignmentStartInput" type="date" aria-label="Inicio" />
-              <input id="assignmentEndInput" type="date" aria-label="Fin opcional" />
-              <button class="button button-primary" type="submit">Asignar</button>
+            <div class="admin-subsection-heading"><div><h3>Asignar una opción</h3><p class="section-description">Selecciona un cliente, un plan y el período de vigencia.</p></div></div>
+            <form id="subscriptionAssignmentForm" class="subscription-assignment-form">
+              <label for="assignmentUserInput">Cliente<select id="assignmentUserInput" required><option value="">Selecciona cliente</option></select></label>
+              <label for="assignmentOptionInput">Opción<select id="assignmentOptionInput" required><option value="">Selecciona opción</option></select></label>
+              <label for="assignmentStartInput">Inicio<input id="assignmentStartInput" type="date" required /></label>
+              <label for="assignmentEndInput">Fin<input id="assignmentEndInput" type="date" required /></label>
+              <button class="button button-primary" type="submit">Asignar opción</button>
             </form>
             <div id="subscriptionAssignmentsList" class="admin-record-list" aria-live="polite"></div>
             <h3>Solicitudes de planes</h3>
             <div id="planPaymentRequestsList" class="admin-record-list" aria-live="polite"></div>
           </section>
         </section>
-        <footer class="page-footer">Hecho para entender mejor tu dinero. <span id="publicContactEmail" hidden></span><a href="https://softhard.pe" target="_blank" rel="noopener noreferrer">SoftHard Peru</a></footer>
+        <footer class="page-footer app-page" data-app-page="summary">Hecho para entender mejor tu dinero. <span id="publicContactEmail" hidden></span><a href="https://softhard.pe" target="_blank" rel="noopener noreferrer">SoftHard Peru</a></footer>
       </main>
     </div>
     <dialog class="suggestion-dialog" id="suggestionDialog" aria-labelledby="suggestionDialogTitle">
@@ -674,11 +780,11 @@
       </div>
     </dialog>
     <nav class="mobile-nav" aria-label="Navegación móvil" hidden>
-      <a href="#overview"><span class="mobile-nav-icon" aria-hidden="true">⌂</span><span class="mobile-nav-label">Resumen</span></a>
-      <a href="#transactions"><span class="mobile-nav-icon" aria-hidden="true">↕</span><span class="mobile-nav-label">Movimientos</span></a>
-      <a class="mobile-nav-add" href="#capture"><span class="mobile-nav-icon" aria-hidden="true">＋</span><span class="mobile-nav-label">Agregar</span></a>
-      <a href="#payments"><span class="mobile-nav-icon" aria-hidden="true">◷</span><span class="mobile-nav-label">Agenda</span></a>
-      <a href="#planning"><span class="mobile-nav-icon" aria-hidden="true">⚙</span><span class="mobile-nav-label">Configurar</span></a>
+      <a href="#overview" data-page="summary"><span class="mobile-nav-icon" aria-hidden="true">⌂</span><span class="mobile-nav-label">Resumen</span></a>
+      <a href="#transactions" data-page="transactions"><span class="mobile-nav-icon" aria-hidden="true">↕</span><span class="mobile-nav-label">Movimientos</span></a>
+      <a class="mobile-nav-add" href="#capture" data-page="capture"><span class="mobile-nav-icon" aria-hidden="true">＋</span><span class="mobile-nav-label">Agregar</span></a>
+      <a href="#payments" data-page="agenda"><span class="mobile-nav-icon" aria-hidden="true">◷</span><span class="mobile-nav-label">Agenda</span></a>
+      <a href="#debts" data-page="planning"><span class="mobile-nav-icon" aria-hidden="true">⚙</span><span class="mobile-nav-label">Configurar</span></a>
     </nav>
     <script src="api-config.js"></script>
     <script src="app.bundle.js"></script>

@@ -2791,6 +2791,47 @@ function handleRequest(string $action, string $method, array $data): array
         }
         return ['message' => 'Pago registrado y saldo actualizado.', 'transactionId' => (string) $transactionId];
     }
+    if ($action === 'debt-payment' && $method === 'DELETE') {
+        requireSubscriptionFeature($user, 'Pagos y deudas');
+        $paymentId = filter_var($data['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$paymentId || $paymentId < 1) {
+            throw new ApiError(422, 'Selecciona un pago válido para anular.');
+        }
+        $db->beginTransaction();
+        try {
+            $statement = $db->prepare(
+                'SELECT debt_payments.debt_id, debt_payments.principal_amount,
+                        debt_payments.transaction_id, debts.balance, debts.original_amount
+                 FROM debt_payments
+                 JOIN debts ON debts.id = debt_payments.debt_id
+                 WHERE debt_payments.id = ? AND debt_payments.user_id = ? AND debts.user_id = ?'
+            );
+            $statement->execute([$paymentId, $userId, $userId]);
+            $payment = $statement->fetch();
+            if (!$payment) {
+                throw new ApiError(404, 'No se encontró ese pago de deuda.');
+            }
+
+            $restoredBalance = min(
+                (float) $payment['original_amount'],
+                round((float) $payment['balance'] + (float) $payment['principal_amount'], 2)
+            );
+            $db->prepare('UPDATE debts SET balance = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+                ->execute([$restoredBalance, time(), $payment['debt_id'], $userId]);
+
+            if ($payment['transaction_id'] !== null) {
+                $db->prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?')
+                    ->execute([$payment['transaction_id'], $userId]);
+            }
+            $db->prepare('DELETE FROM debt_payments WHERE id = ? AND user_id = ?')
+                ->execute([$paymentId, $userId]);
+            $db->commit();
+        } catch (Throwable $error) {
+            $db->rollBack();
+            throw $error;
+        }
+        return ['message' => 'Pago anulado; se restauró el saldo y se eliminó el gasto asociado.'];
+    }
 
     if ($action === 'budgets' && $method === 'GET') {
         $statement = $db->prepare(

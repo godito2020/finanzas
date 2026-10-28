@@ -2,6 +2,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
 const AUTH_TOKEN_KEY = 'finanza-auth-token-v1';
+const THEME_PREFERENCE_KEY = 'finanza-theme';
 const TERMS_VERSION = '1.0-2026-10-27';
 const SUGGESTED_CATEGORIES = [
   'Alimentación',
@@ -49,7 +50,7 @@ const recoveryEmail = document.getElementById('recoveryEmail');
 const resetEmail = document.getElementById('resetEmail');
 const resetCode = document.getElementById('resetCode');
 const newPassword = document.getElementById('newPassword');
-const accountEmail = document.getElementById('accountEmail');
+const accountName = document.getElementById('accountName');
 const logoutButton = document.getElementById('logoutButton');
 const showRecoveryButton = document.getElementById('showRecoveryButton');
 const resendCodeButton = document.getElementById('resendCodeButton');
@@ -58,7 +59,6 @@ const balanceValue = document.getElementById('balanceValue');
 const incomeValue = document.getElementById('incomeValue');
 const expenseValue = document.getElementById('expenseValue');
 const savedValue = document.getElementById('savedValue');
-const monthLabel = document.getElementById('monthLabel');
 const paymentForm = document.getElementById('paymentForm');
 const paymentNameInput = document.getElementById('paymentNameInput');
 const paymentCategoryInput = document.getElementById('paymentCategoryInput');
@@ -138,6 +138,20 @@ const adminSettingsForm = document.getElementById('adminSettingsForm');
 const subscriptionOptionForm = document.getElementById('subscriptionOptionForm');
 const subscriptionAssignmentForm = document.getElementById('subscriptionAssignmentForm');
 const mobileNav = document.querySelector('.mobile-nav');
+const utilityMenu = document.querySelector('.utility-menu');
+const themePreferenceInput = document.getElementById('themePreferenceInput');
+const reportPeriodInput = document.getElementById('reportPeriodInput');
+const reportTypeInput = document.getElementById('reportTypeInput');
+const reportCategoryInput = document.getElementById('reportCategoryInput');
+const reportGroupInput = document.getElementById('reportGroupInput');
+const reportStartDate = document.getElementById('reportStartDate');
+const reportEndDate = document.getElementById('reportEndDate');
+const reportStartField = document.getElementById('reportStartField');
+const reportEndField = document.getElementById('reportEndField');
+const reportSearchInput = document.getElementById('reportSearchInput');
+const reportBreakdown = document.getElementById('reportBreakdown');
+const reportTableBody = document.getElementById('reportTableBody');
+const appPages = [...document.querySelectorAll('[data-app-page]')];
 const budgetForm = document.getElementById('budgetForm');
 const budgetCategoryInput = document.getElementById('budgetCategoryInput');
 const budgetAmountInput = document.getElementById('budgetAmountInput');
@@ -185,6 +199,7 @@ let debtPayments = [];
 let budgets = [];
 let emergencyFund = null;
 let dashboardPeriod = 'month';
+let activeAppPage = 'summary';
 let subscriptionPlans = [];
 let paymentInstructions = {};
 let currentSubscription = null;
@@ -263,13 +278,104 @@ function setActiveMobileNav(activeLink) {
   });
 }
 
+function updateAppPageVisibility() {
+  const isMobile = window.matchMedia('(max-width: 760px)').matches;
+  const isPageAvailable = (page) => isMobile
+    ? (page.dataset.mobilePage || page.dataset.appPage) === activeAppPage
+    : page.dataset.appPage === activeAppPage;
+  if (!appPages.some(isPageAvailable)) {
+    const previousPage = appPages.find((page) => page.dataset.appPage === activeAppPage);
+    activeAppPage = isMobile ? (previousPage?.dataset.mobilePage || 'summary') : 'summary';
+  }
+  appPages.forEach((page) => {
+    const pageName = isMobile ? (page.dataset.mobilePage || page.dataset.appPage) : page.dataset.appPage;
+    page.hidden = pageName !== activeAppPage;
+  });
+}
+
+function setAppPage(pageName, { scroll = false } = {}) {
+  const isMobile = window.matchMedia('(max-width: 760px)').matches;
+  const matchingPage = appPages.find((page) => isMobile
+    ? (page.dataset.mobilePage || page.dataset.appPage) === pageName
+    : page.dataset.appPage === pageName);
+  if (!matchingPage) return;
+  activeAppPage = isMobile ? (matchingPage.dataset.mobilePage || pageName) : pageName;
+  updateAppPageVisibility();
+  const mobilePageName = isMobile ? activeAppPage : (matchingPage.dataset.mobilePage || pageName);
+  setActiveMobileNav(mobileNav.querySelector(`[data-page="${mobilePageName}"]`));
+  document.querySelectorAll('.nav-item[data-page]').forEach((link) => {
+    const isActive = link.dataset.page === activeAppPage;
+    link.classList.toggle('active', isActive);
+    if (isActive) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+  const pageCopy = {
+    summary: ['TU RESUMEN FINANCIERO', 'Hola, aquí está tu dinero.'],
+    transactions: ['TU HISTORIAL', 'Movimientos'],
+    capture: ['REGISTRO RÁPIDO', 'Registra un movimiento'],
+    agenda: ['ORGANIZA TUS VENCIMIENTOS', 'Agenda de pagos'],
+    planning: ['TU ORGANIZACIÓN', 'Ahorros y planificación'],
+    debts: ['ORGANIZA TUS PRÉSTAMOS', 'Pagos y deudas'],
+    emergency: ['PROTECCIÓN FINANCIERA', 'Fondo de emergencia'],
+    categories: ['ORGANIZA', 'Tus categorías'],
+    goals: ['PASO A PASO', 'Tus metas'],
+    budgets: ['PLANIFICA TU MES', 'Presupuestos por categoría'],
+    plans: ['TU CUENTA', 'Funciones avanzadas'],
+    reports: ['ANÁLISIS FINANCIERO', 'Reportes detallados']
+  }[activeAppPage];
+  document.getElementById('pageEyebrow').textContent = pageCopy[0];
+  document.getElementById('pageTitle').textContent = pageCopy[1];
+  if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function pageForHash(hash) {
+  const target = document.getElementById(hash);
+  const page = target?.closest('[data-app-page]');
+  return (window.matchMedia('(max-width: 760px)').matches
+    ? page?.dataset.mobilePage || page?.dataset.appPage
+    : page?.dataset.appPage) ||
+    (hash === 'overview' ? 'summary' : null);
+}
+
+function initializeTheme() {
+  const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+  const storedPreference = localStorage.getItem(THEME_PREFERENCE_KEY);
+  let preference = storedPreference === 'light' || storedPreference === 'dark'
+    ? storedPreference
+    : 'system';
+  themePreferenceInput.value = preference;
+
+  const applyTheme = () => {
+    const theme = preference === 'system'
+      ? (systemTheme.matches ? 'dark' : 'light')
+      : preference;
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]').content =
+      theme === 'dark' ? '#1a1e2e' : '#f7f8f4';
+  };
+
+  themePreferenceInput.addEventListener('change', () => {
+    preference = themePreferenceInput.value;
+    if (preference === 'system') localStorage.removeItem(THEME_PREFERENCE_KEY);
+    else localStorage.setItem(THEME_PREFERENCE_KEY, preference);
+    applyTheme();
+  });
+  systemTheme.addEventListener('change', () => {
+    if (themePreferenceInput.value === 'system') applyTheme();
+  });
+  applyTheme();
+}
+
 function initialize() {
-  setActiveMobileNav(mobileNav.querySelector('a[href="#overview"]'));
+  initializeTheme();
+  setAppPage(pageForHash(window.location.hash.slice(1)) || 'summary');
   dateInput.value = getDateString(0);
   goalDateInput.value = getDateString(90);
   paymentDueDateInput.value = getDateString(1);
   dashboardStartDate.value = getDateString(0);
   dashboardEndDate.value = getDateString(0);
+  reportStartDate.value = `${getDateString(0).slice(0, 7)}-01`;
+  reportEndDate.value = getDateString(0);
   setDefaultAssignmentDates();
   formBaseCurrency = appBaseCurrency;
   updateExchangeRateField();
@@ -292,17 +398,54 @@ function initialize() {
   planPaymentMethodInput.addEventListener('change', renderPlanPaymentInstructions);
   cancelPlanRequestButton.addEventListener('click', () => { planPaymentForm.hidden = true; });
   document.getElementById('planCards').addEventListener('click', handlePlanCardClick);
+  document.getElementById('togglePlansButton').addEventListener('click', togglePlanOffers);
+  document.getElementById('emergencyFundHelpButton').addEventListener('click', toggleEmergencyFundHelp);
+  document.querySelectorAll('[data-open-plans]').forEach((button) => {
+    button.addEventListener('click', openPlanOffers);
+  });
   debtCurrencyInput.addEventListener('change', updateDebtExchangeRateField);
   document.querySelectorAll('[data-period]').forEach((button) => {
     button.addEventListener('click', () => setDashboardPeriod(button.dataset.period));
   });
   mobileNav.addEventListener('click', (event) => {
+    const link = event.target.closest('a[data-page]');
+    if (!link) return;
+    event.preventDefault();
+    history.replaceState(null, '', link.hash);
+    setAppPage(link.dataset.page, { scroll: true });
+  });
+  document.querySelector('.nav').addEventListener('click', (event) => {
+    const link = event.target.closest('a[data-page]');
+    if (!link) return;
+    event.preventDefault();
+    history.replaceState(null, '', link.hash);
+    setAppPage(link.dataset.page, { scroll: true });
+  });
+  document.getElementById('overview').addEventListener('click', (event) => {
     const link = event.target.closest('a[href^="#"]');
-    if (link) setActiveMobileNav(link);
+    if (!link || link.closest('.mobile-nav')) return;
+    const pageName = pageForHash(link.hash.slice(1));
+    if (!pageName) return;
+    event.preventDefault();
+    history.replaceState(null, '', link.hash);
+    setAppPage(pageName, { scroll: true });
+  });
+  utilityMenu.addEventListener('click', (event) => {
+    if (event.target.closest('button, a')) utilityMenu.open = false;
+  });
+  document.addEventListener('click', (event) => {
+    if (!utilityMenu.contains(event.target)) utilityMenu.open = false;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') utilityMenu.open = false;
   });
   window.addEventListener('hashchange', () => {
-    const link = mobileNav.querySelector(`a[href="#${window.location.hash.slice(1)}"]`);
-    setActiveMobileNav(link || mobileNav.querySelector('a[href="#overview"]'));
+    const pageName = pageForHash(window.location.hash.slice(1));
+    if (pageName) setAppPage(pageName);
+  });
+  window.addEventListener('resize', () => {
+    updateAppPageVisibility();
+    setAppPage(activeAppPage);
   });
   dashboardStartDate.addEventListener('change', render);
   dashboardEndDate.addEventListener('change', render);
@@ -338,6 +481,9 @@ function initialize() {
   installButton.addEventListener('click', handleInstallClick);
   authInstallButton.addEventListener('click', handleInstallClick);
   reportButton.addEventListener('click', handleReportClick);
+  [reportPeriodInput, reportTypeInput, reportCategoryInput, reportGroupInput, reportStartDate, reportEndDate]
+    .forEach((input) => input.addEventListener('change', renderReports));
+  reportSearchInput.addEventListener('input', renderReports);
   restartOnboardingButton.addEventListener('click', () => maybeStartOnboarding(true));
   categoryForm.addEventListener('submit', handleCategorySubmit);
   loginForm.addEventListener('submit', handleLoginSubmit);
@@ -441,6 +587,7 @@ function initialize() {
     }
     deferredInstallPrompt = event;
     installButton.hidden = false;
+    installButton.classList.add('install-ready');
     authInstallButton.hidden = false;
     authInstallHelp.hidden = true;
   });
@@ -630,9 +777,13 @@ function showApp() {
   authScreen.hidden = true;
   appShell.hidden = false;
   mobileNav.hidden = false;
-  accountEmail.textContent = currentUser ? currentUser.email : '';
+  accountName.textContent = currentUser ? (currentUser.name || currentUser.email) : '';
+  logoutButton.title = currentUser ? `Cerrar sesión de ${currentUser.name || currentUser.email}` : 'Cerrar sesión';
   adminPanelButton.hidden = currentUser?.role !== 'master';
   closeAdminPanel();
+  setAppPage('summary', { scroll: true });
+  installButton.hidden = isAppInstalled() || (!deferredInstallPrompt && !isMobileBrowser());
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}#overview`);
 }
 
 function clearAuthSession() {
@@ -678,10 +829,11 @@ function showAuthMessage(message, isError = false) {
 }
 
 function showAppNotice(message, isError = false) {
-  appNotice.textContent = message;
-  appNotice.hidden = !message;
+  const noticeText = typeof message === 'string' ? message.trim() : '';
+  appNotice.textContent = noticeText;
+  appNotice.hidden = !noticeText;
   appNotice.classList.toggle('error', isError);
-  if (message) {
+  if (noticeText) {
     window.setTimeout(() => {
       appNotice.hidden = true;
     }, 5000);
@@ -820,6 +972,7 @@ function openAdminPanel() {
 function closeAdminPanel() {
   adminPanel.hidden = true;
   document.querySelectorAll('#overview > :not(#adminPanel)').forEach((element) => { element.hidden = false; });
+  updateAppPageVisibility();
   mobileNav.hidden = false;
   appNotice.hidden = true;
 }
@@ -1218,8 +1371,10 @@ function renderSubscriptionData(data) {
         <option value="cancelled" ${item.status === 'cancelled' ? 'selected' : ''}>Cancelada</option>
       </select></label>
       <label>Fin<input class="assignment-end" type="date" value="${escapeHtml(item.endsAt || '')}" /></label>
-      <button class="button button-quiet assignment-save" type="button">Guardar</button>
-      <button class="button button-reset assignment-delete" type="button">Eliminar</button>
+      <div class="assignment-actions">
+        <button class="button button-quiet assignment-save" type="button">Guardar</button>
+        <button class="button button-delete assignment-delete" type="button">Eliminar</button>
+      </div>
     </div>
   `).join('');
   assignmentsList.querySelectorAll('.assignment-save').forEach((button) => {
@@ -1445,6 +1600,7 @@ function isAppInstalled() {
 function hideInstallButton() {
   deferredInstallPrompt = null;
   installButton.hidden = true;
+  installButton.classList.remove('install-ready');
   authInstallButton.hidden = true;
   authInstallHelp.hidden = true;
 }
@@ -1462,28 +1618,26 @@ async function handleReportClick() {
   }
   try {
     reportButton.disabled = true;
-    reportButton.textContent = 'Preparando PDF…';
-    await exportReportPDF();
+    reportButton.innerHTML = '<span aria-hidden="true">…</span> Preparando PDF';
+    const report = getReportData();
+    await exportReportPDF(report.transactions, report.range.label, report.filters);
   } catch (error) {
     console.error('No se pudo generar o compartir el reporte PDF.', error);
     window.alert('No se pudo generar el reporte. Intenta de nuevo.');
   } finally {
     reportButton.disabled = false;
-    reportButton.innerHTML = '<span aria-hidden="true">↓</span> Descargar reporte PDF';
+    reportButton.innerHTML = '<span aria-hidden="true">↓</span> Descargar PDF';
   }
 }
 
-async function exportReportPDF() {
+async function exportReportPDF(reportTransactions, period, filters) {
   const jsPDF = await loadJsPDF();
-  const reportTransactions = getFilteredTransactions()
-    .filter((transaction) => (transaction.baseCurrency || 'PEN') === appBaseCurrency)
-    .sort((a, b) => a.date.localeCompare(b.date));
+  reportTransactions.sort((a, b) => a.date.localeCompare(b.date));
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const left = 16;
   const right = pageWidth - left;
-  const period = filterMonthInput.value === 'all' ? 'Todo el período' : formatMonthLabel(filterMonthInput.value);
   const totals = reportTransactions.reduce(
     (summary, transaction) => {
       summary[transaction.type] += transaction.amountInBaseCurrency;
@@ -1499,7 +1653,7 @@ async function exportReportPDF() {
     }, {});
 
   doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, pageWidth, 48, 'F');
+  doc.rect(0, 0, pageWidth, 54, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
@@ -1509,8 +1663,10 @@ async function exportReportPDF() {
   doc.text('Reporte de ingresos y gastos', left, 28);
   doc.text(`Período: ${period}`, left, 36);
   doc.text(`Generado: ${formatDate(getDateString(0))}`, right, 36, { align: 'right' });
+  doc.setFontSize(8);
+  doc.text(`Filtros: ${filters.join(' · ')}`, left, 44);
 
-  let y = 61;
+  let y = 65;
   doc.setTextColor(31, 41, 55);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -1544,7 +1700,7 @@ async function exportReportPDF() {
     doc.setTextColor(31, 41, 55);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('GASTOS POR CATEGORÍA', left, y);
+    doc.text(`${reportTypeInput.value === 'income' ? 'INGRESOS' : 'GASTOS'} POR CATEGORÍA`, left, y);
     y += 7;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
@@ -1611,7 +1767,7 @@ async function exportReportPDF() {
     doc.text('No hay movimientos para los filtros seleccionados.', left, y);
   }
 
-  const filename = `finanza-reporte-${filterMonthInput.value === 'all' ? 'completo' : filterMonthInput.value}.pdf`;
+  const filename = `finanza-reporte-${getDateString(0)}.pdf`;
   const pdfBlob = doc.output('blob');
 
   if (isNativePlatform()) {
@@ -1695,23 +1851,28 @@ async function handleInstallClick() {
   }
 
   if (!deferredInstallPrompt) {
-    authInstallHelp.textContent = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    const helpText = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
       ? 'En Safari, toca Compartir y elige “Añadir a pantalla de inicio”.'
       : 'Abre el menú del navegador y elige “Instalar app” o “Añadir a pantalla principal”.';
-    authInstallHelp.hidden = false;
+    if (appShell.hidden) {
+      authInstallHelp.textContent = helpText;
+      authInstallHelp.hidden = false;
+    } else {
+      showAppNotice(helpText);
+    }
     return;
   }
 
   deferredInstallPrompt.prompt();
   const choiceResult = await deferredInstallPrompt.userChoice;
-
-  if (choiceResult.outcome === 'accepted' || isAppInstalled()) {
+  deferredInstallPrompt = null;
+  if (isAppInstalled()) {
     hideInstallButton();
-    return;
   }
-
-  hideInstallButton();
+  if (choiceResult.outcome === 'accepted' && !isAppInstalled()) {
+    showAppNotice('Finanza se instalará en tu dispositivo. El botón desaparecerá al completar la instalación.');
+  }
 }
 
 function handleSubmit(event) {
@@ -1809,6 +1970,8 @@ function renderOnboardingStep() {
   onboardingDescription.textContent = step.description;
   previousOnboardingButton.disabled = onboardingStep === 0;
   nextOnboardingButton.textContent = onboardingStep === onboardingSteps.length - 1 ? 'Terminar' : 'Siguiente';
+  const targetPage = document.querySelector(step.target)?.closest('[data-app-page]')?.dataset.appPage;
+  if (targetPage && window.matchMedia('(max-width: 760px)').matches) setAppPage(targetPage);
   const target = document.querySelector(step.target);
   if (!target) {
     onboardingSpotlight.hidden = true;
@@ -1856,6 +2019,10 @@ async function finishOnboarding() {
     await apiRequest('complete-onboarding', { method: 'POST', body: {} });
     currentUser.onboardingCompleted = true;
     onboardingDialog.close();
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      setAppPage('summary', { scroll: true });
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}#overview`);
+    }
   } catch (error) {
     onboardingStatus.textContent = error.message;
     onboardingStatus.classList.add('error');
@@ -2228,6 +2395,30 @@ async function handleDebtPaymentSubmit(event) {
 }
 
 async function handleDebtListClick(event) {
+  const paymentButton = event.target.closest('[data-delete-debt-payment]');
+  if (paymentButton) {
+    if (!window.confirm('¿Anular este pago? El saldo de la deuda se restaurará y también se eliminará el gasto asociado.')) return;
+    paymentButton.disabled = true;
+    try {
+      const result = await apiRequest('debt-payment', {
+        method: 'DELETE',
+        body: { id: paymentButton.dataset.deleteDebtPayment }
+      });
+      const [debtResult, transactionResult] = await Promise.all([
+        apiRequest('debts'),
+        apiRequest('transactions')
+      ]);
+      debts = debtResult.debts;
+      debtPayments = debtResult.payments;
+      transactions = transactionResult.transactions;
+      render();
+      showAppNotice(result.message);
+    } catch (error) {
+      paymentButton.disabled = false;
+      showAppNotice(error.message, true);
+    }
+    return;
+  }
   const button = event.target.closest('[data-delete-debt]');
   if (!button) return;
   if (!window.confirm('¿Eliminar esta deuda? Las deudas con pagos registrados conservan su historial y no se pueden borrar.')) return;
@@ -2245,6 +2436,7 @@ async function handleDebtListClick(event) {
 
 function renderDebts() {
   debtForm.hidden = !featureAccess.debts;
+  document.getElementById('debtFormDetails').hidden = !featureAccess.debts;
   document.getElementById('debtUpgradeNotice').hidden = featureAccess.debts;
   const openDebts = debts.filter((debt) => debt.balance > 0);
   const totals = new Map();
@@ -2279,7 +2471,8 @@ function renderDebts() {
             <details class="debt-payment-details">
               <summary>Registrar un pago</summary>
               <form class="debt-payment-form" data-debt-payment-form data-debt-id="${escapeHtml(debt.id)}">
-                <label>Abono a capital<input name="principalAmount" type="number" min="0" max="${debt.balance}" step="0.01" value="${debt.balance}" required /></label>
+                <p class="field-hint">El abono a capital reduce el saldo. Intereses y cargos forman parte del gasto, pero no reducen la deuda.</p>
+                <label>Abono a capital (reduce el saldo)<input name="principalAmount" type="number" min="0" max="${debt.balance}" step="0.01" value="0" required /></label>
                 <label>Intereses y cargos<input name="chargesAmount" type="number" min="0" step="0.01" value="0" /></label>
                 <label>Fecha<input name="date" type="date" value="${getDateString(0)}" required /></label>
                 <button class="button button-primary" type="submit">Guardar pago</button>
@@ -2289,7 +2482,12 @@ function renderDebts() {
           <details class="debt-payment-details">
             <summary>Pagos registrados (${history.length})</summary>
             <div class="dashboard-compact-list">${history.length
-              ? history.map((payment) => `<p>${formatDate(payment.paidDate)} · Capital ${formatCurrency(payment.principalAmount, payment.currency)} · Cargos ${formatCurrency(payment.chargesAmount, payment.currency)}</p>`).join('')
+              ? history.map((payment) => `
+                <div class="debt-payment-history">
+                  <p>${formatDate(payment.paidDate)} · Capital ${formatCurrency(payment.principalAmount, payment.currency)} · Cargos ${formatCurrency(payment.chargesAmount, payment.currency)}</p>
+                  ${featureAccess.debts ? `<button class="goal-delete-button" type="button" data-delete-debt-payment="${escapeHtml(payment.id)}">Anular pago</button>` : ''}
+                </div>
+              `).join('')
               : '<p class="empty-state">Sin pagos registrados.</p>'}</div>
           </details>
         </article>
@@ -2353,10 +2551,38 @@ function renderEmergencyFund() {
   document.getElementById('emergencyFundValue').textContent =
     `${formatCurrency(current, fundCurrency)} / ${formatCurrency(target, fundCurrency)}`;
   document.getElementById('emergencyFundProgress').textContent =
-    `${Math.round(percent)}% completado · meta sugerida de 6 meses`;
+    `${Math.round(percent)}% de la meta · faltan ${formatCurrency(Math.max(target - current, 0), fundCurrency)}`;
+  document.getElementById('emergencyFundProgressBar').style.width = `${percent}%`;
+  document.querySelector('.emergency-fund-progress[role="progressbar"]')
+    .setAttribute('aria-valuenow', String(Math.round(percent)));
   emergencyTargetInput.value = String(target.toFixed(2));
   emergencyCurrentInput.value = String(current.toFixed(2));
   emergencyTargetInput.placeholder = String(suggested.toFixed(2));
+}
+
+function toggleEmergencyFundHelp() {
+  const help = document.getElementById('emergencyFundHelp');
+  const button = document.getElementById('emergencyFundHelpButton');
+  help.hidden = !help.hidden;
+  button.setAttribute('aria-expanded', String(!help.hidden));
+}
+
+function togglePlanOffers() {
+  const planCards = document.getElementById('planCards');
+  const button = document.getElementById('togglePlansButton');
+  planCards.hidden = !planCards.hidden;
+  button.setAttribute('aria-expanded', String(!planCards.hidden));
+  button.textContent = planCards.hidden ? 'Conocer planes' : 'Ocultar planes';
+}
+
+function openPlanOffers() {
+  setAppPage('planning');
+  const planCards = document.getElementById('planCards');
+  const button = document.getElementById('togglePlansButton');
+  planCards.hidden = false;
+  button.setAttribute('aria-expanded', 'true');
+  button.textContent = 'Ocultar planes';
+  document.getElementById('subscriptionPlans').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderPlans() {
@@ -2687,14 +2913,13 @@ async function handlePaymentListClick(event) {
 
 function render() {
   const range = getDashboardDateRange();
-  monthLabel.textContent = range.label;
   dashboardPeriodLabel.textContent = range.label;
   const summary = summarizeTransactions(range);
   balanceValue.textContent = formatCurrency(summary.balance);
   incomeValue.textContent = formatCurrency(summary.income);
   expenseValue.textContent = formatCurrency(summary.expense);
-  document.getElementById('incomePeriodCaption').textContent = `Entradas · ${range.label.toLowerCase()}`;
-  document.getElementById('expensePeriodCaption').textContent = `Salidas · ${range.label.toLowerCase()}`;
+  document.getElementById('incomePeriodCaption').textContent = 'Entradas registradas';
+  document.getElementById('expensePeriodCaption').textContent = 'Salidas registradas';
   document.getElementById('pendingPaymentsValue').textContent = String(
     paymentSchedules.filter((payment) => payment.dueDate <= getDateString(7)).length
   );
@@ -2713,7 +2938,163 @@ function render() {
   renderGoals();
   renderMonthOptions();
   renderTable();
+  renderReports();
   updateCurrencyHistoryNotice();
+}
+
+function getReportDateRange() {
+  const today = getDateString(0);
+  const period = reportPeriodInput.value;
+  let start = today;
+  let end = today;
+  let label = '';
+
+  if (period === 'week') {
+    const date = parseLocalDate(today);
+    date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    start = localDateString(date);
+    label = `Semana del ${formatDate(start)} al ${formatDate(today)}`;
+  } else if (period === 'month') {
+    start = `${today.slice(0, 7)}-01`;
+    label = formatMonthLabel(today.slice(0, 7));
+  } else if (period === 'year') {
+    start = `${today.slice(0, 4)}-01-01`;
+    label = `Año ${today.slice(0, 4)}`;
+  } else if (period === 'all') {
+    start = transactions.length
+      ? transactions.reduce((earliest, transaction) => transaction.date < earliest ? transaction.date : earliest, today)
+      : today;
+    end = transactions.length
+      ? transactions.reduce((latest, transaction) => transaction.date > latest ? transaction.date : latest, today)
+      : today;
+    label = 'Todo el período';
+  } else {
+    start = reportStartDate.value;
+    end = reportEndDate.value;
+    if (!start || !end || start > end) {
+      return { start, end, label: 'Selecciona un rango de fechas válido', valid: false };
+    }
+    label = `${formatDate(start)} al ${formatDate(end)}`;
+  }
+
+  return { start, end, label, valid: true };
+}
+
+function getReportData() {
+  const range = getReportDateRange();
+  const search = reportSearchInput.value.trim().toLocaleLowerCase();
+  const type = reportTypeInput.value;
+  const category = reportCategoryInput.value;
+  const filtered = range.valid
+    ? transactions.filter((transaction) => {
+      const description = String(transaction.description || '').toLocaleLowerCase();
+      const transactionCategory = String(transaction.category || 'Otros');
+      return transaction.date >= range.start && transaction.date <= range.end &&
+        (transaction.baseCurrency || 'PEN') === appBaseCurrency &&
+        (type === 'all' || transaction.type === type) &&
+        (category === 'all' || transactionCategory === category) &&
+        (!search || description.includes(search) || transactionCategory.toLocaleLowerCase().includes(search));
+    })
+    : [];
+  const typeLabels = { all: 'Ingresos y gastos', income: 'Solo ingresos', expense: 'Solo gastos' };
+  const filters = [
+    typeLabels[type],
+    category === 'all' ? 'Todas las categorías' : `Categoría: ${category}`,
+    search ? `Búsqueda: ${search}` : 'Sin búsqueda'
+  ];
+  return { range, filters, transactions: filtered.sort((a, b) => b.date.localeCompare(a.date)) };
+}
+
+function renderReports() {
+  const customRange = reportPeriodInput.value === 'custom';
+  reportStartField.hidden = !customRange;
+  reportEndField.hidden = !customRange;
+
+  const selectedCategory = reportCategoryInput.value;
+  const categoryOptions = [...new Set(transactions.map((transaction) => transaction.category || 'Otros'))]
+    .sort((a, b) => a.localeCompare(b, 'es'));
+  reportCategoryInput.innerHTML = '<option value="all">Todas las categorías</option>' +
+    categoryOptions.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join('');
+  reportCategoryInput.value = categoryOptions.includes(selectedCategory) ? selectedCategory : 'all';
+
+  const { range, transactions: matching } = getReportData();
+  const totals = matching.reduce((result, transaction) => {
+    result[transaction.type] += transaction.amountInBaseCurrency;
+    return result;
+  }, { income: 0, expense: 0 });
+  document.getElementById('reportIncomeValue').textContent = formatCurrency(totals.income);
+  document.getElementById('reportExpenseValue').textContent = formatCurrency(totals.expense);
+  document.getElementById('reportBalanceValue').textContent = formatCurrency(totals.income - totals.expense);
+  document.getElementById('reportCountValue').textContent = String(matching.length);
+  document.getElementById('reportResultCaption').textContent =
+    `${range.label} · ${matching.length} movimiento${matching.length === 1 ? '' : 's'} en ${appBaseCurrency}`;
+
+  const byMonth = reportGroupInput.value === 'month';
+  const selectedType = reportTypeInput.value;
+  document.getElementById('reportBreakdownTitle').textContent = byMonth
+    ? 'Actividad por mes'
+    : selectedType === 'income' ? 'Ingresos por categoría' : 'Gastos por categoría';
+  renderReportBreakdown(matching, { byMonth, selectedType });
+
+  if (!matching.length) {
+    reportTableBody.innerHTML = '<tr><td colspan="5"><p class="empty-state">No hay movimientos para los filtros seleccionados.</p></td></tr>';
+    return;
+  }
+  reportTableBody.innerHTML = matching.map((transaction) => `
+    <tr>
+      <td data-label="Fecha">${formatDate(transaction.date)}</td>
+      <td data-label="Descripción">${escapeHtml(transaction.description)}</td>
+      <td data-label="Categoría">${escapeHtml(transaction.category || 'Otros')}</td>
+      <td data-label="Tipo">${transaction.type === 'income' ? 'Ingreso' : 'Gasto'}</td>
+      <td data-label="Monto" class="${transaction.type === 'income' ? 'amount-income' : 'amount-expense'}">
+        ${transaction.type === 'income' ? '+' : '−'}${formatCurrency(transaction.amountInBaseCurrency)}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderReportBreakdown(matching, { byMonth, selectedType }) {
+  if (byMonth) {
+    const months = new Map();
+    matching.forEach((transaction) => {
+      const key = transaction.date.slice(0, 7);
+      const totals = months.get(key) || { income: 0, expense: 0 };
+      totals[transaction.type] += transaction.amountInBaseCurrency;
+      months.set(key, totals);
+    });
+    const entries = [...months.entries()].sort(([a], [b]) => a.localeCompare(b));
+    if (!entries.length) {
+      reportBreakdown.innerHTML = '<p class="empty-state">No hay datos para mostrar.</p>';
+      return;
+    }
+    reportBreakdown.innerHTML = entries.map(([month, totals]) => `
+      <article class="report-month-row">
+        <strong>${escapeHtml(formatMonthLabel(month))}</strong>
+        <span class="amount-income">Ingresos ${formatCurrency(totals.income)}</span>
+        <span class="amount-expense">Gastos ${formatCurrency(totals.expense)}</span>
+      </article>
+    `).join('');
+    return;
+  }
+
+  const type = selectedType === 'all' ? 'expense' : selectedType;
+  const amounts = new Map();
+  matching.filter((transaction) => transaction.type === type).forEach((transaction) => {
+    const category = transaction.category || 'Otros';
+    amounts.set(category, (amounts.get(category) || 0) + transaction.amountInBaseCurrency);
+  });
+  const entries = [...amounts.entries()].sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    reportBreakdown.innerHTML = '<p class="empty-state">No hay datos para mostrar con estos filtros.</p>';
+    return;
+  }
+  const maxAmount = entries[0][1] || 1;
+  reportBreakdown.innerHTML = entries.map(([category, amount]) => `
+    <div class="report-category-row">
+      <div class="report-category-label"><span>${escapeHtml(category)}</span><strong>${formatCurrency(amount)}</strong></div>
+      <div class="report-category-track"><span class="${type === 'income' ? 'income' : 'expense'}" style="width:${Math.max((amount / maxAmount) * 100, 2)}%"></span></div>
+    </div>
+  `).join('');
 }
 
 function updateCurrencyHistoryNotice() {
@@ -2726,6 +3107,7 @@ function updateCurrencyHistoryNotice() {
   currencyHistoryNotice.textContent = historicalCurrencies.length
     ? `La moneda principal es ${appBaseCurrency}. Los registros históricos en ${historicalCurrencies.join(', ')} conservan su valor y no se mezclan en los resúmenes actuales.`
     : '';
+  currencyHistoryNotice.hidden = !currencyHistoryNotice.textContent.trim();
 }
 
 function summarizeTransactions(range) {
@@ -3164,7 +3546,7 @@ function renderCategoryChart(range) {
 
 function renderGoals() {
   const atFreeGoalLimit = currentUser?.role !== 'master' && !featureAccess.budgets && goals.length >= 1;
-  goalForm.hidden = atFreeGoalLimit;
+  document.getElementById('goalFormDetails').hidden = atFreeGoalLimit;
   document.getElementById('goalUpgradeNotice').hidden = !atFreeGoalLimit;
   if (!goals.length) {
     goalsList.innerHTML = '<p class="empty-state">Aún no agregas metas.</p>';
