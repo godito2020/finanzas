@@ -74,6 +74,16 @@ button { touch-action: manipulation; }
 .terms-consent input { flex: 0 0 17px; width: 17px; min-height: 17px; height: 17px; margin: 2px 0 0; accent-color: var(--green); }
 .terms-consent a { color: var(--green-dark); font-weight: 700; }
 .auth-form > .button { margin-top: 4px; min-height: 48px; }
+@media (min-width: 761px) {
+  .auth-screen.payment-gate {
+    grid-template-columns: minmax(0, 560px);
+    justify-content: center;
+    align-content: start;
+    gap: 20px;
+    padding: 32px;
+  }
+  .payment-gate .auth-brand { align-self: center; }
+}
 .auth-link { justify-self: center; padding: 5px 8px; border: 0; background: transparent; color: var(--green); font-size: .78rem; font-weight: 650; cursor: pointer; }
 .auth-link:hover { color: var(--green-dark); text-decoration: underline; }
 .auth-switch { margin: 5px 0 0; color: var(--muted); font-size: .78rem; text-align: center; }

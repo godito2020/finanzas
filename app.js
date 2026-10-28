@@ -1022,6 +1022,7 @@ function clearAuthSession() {
 }
 
 function showAuthView(view, message = '') {
+  authScreen.classList.toggle('payment-gate', view === 'requiredPayment');
   const forms = {
     login: loginForm,
     setupMaster: setupMasterForm,
