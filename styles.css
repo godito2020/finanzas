@@ -16,12 +16,14 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+html { min-height: 100%; overscroll-behavior-y: none; scroll-behavior: smooth; scroll-padding-top: 20px; }
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
+  overscroll-behavior-y: none;
   background: var(--canvas);
   color: var(--ink);
   font-family: Manrope, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -59,6 +61,13 @@ button { touch-action: manipulation; }
 .auth-card h1 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.15rem); letter-spacing: -.055em; }
 .auth-intro { margin: 10px 0 22px; color: var(--muted); font-size: .87rem; line-height: 1.55; }
 .auth-form { display: grid; gap: 10px; }
+.required-payment-form > p:not(.eyebrow) { margin: 0 0 4px; color: var(--muted); font-size: .82rem; line-height: 1.55; }
+.required-payment-price { display: grid; gap: 4px; margin: 2px 0 8px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-tint); }
+.required-payment-price > span, .required-payment-price small { color: var(--muted); font-size: .75rem; }
+.required-payment-price strong { color: var(--ink); font-size: 1.55rem; }
+.required-payment-form select { min-height: 46px; }
+.required-payment-form .plan-payment-instructions { margin: 2px 0 6px; }
+.required-payment-form .auth-message { margin: 0; }
 .auth-form label { margin: 2px 0 -4px; }
 .auth-form input { margin-bottom: 5px; min-height: 47px; }
 .auth-form .terms-consent { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0 !important; color: #536057; font-size: .76rem; line-height: 1.5; }
@@ -322,6 +331,37 @@ button { touch-action: manipulation; }
 .wide { width: 100%; }
 .button-row { display: flex; align-items: center; gap: 10px; }
 .button-row .wide { flex: 1; }
+.ai-floating-button {
+  position: fixed;
+  z-index: 14;
+  right: 24px;
+  bottom: 24px;
+  display: inline-flex;
+  min-width: 76px;
+  min-height: 58px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 17px;
+  border: 1px solid rgba(147, 197, 253, .65);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #fff;
+  font: inherit;
+  font-size: .88rem;
+  font-weight: 850;
+  letter-spacing: .06em;
+  cursor: pointer;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, .12), 0 0 24px rgba(99, 102, 241, .62), 0 10px 28px rgba(0, 0, 0, .35);
+  animation: ai-floating-glow 2.4s ease-in-out infinite;
+}
+.ai-floating-button[hidden] { display: none !important; }
+.ai-floating-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ai-floating-button:hover { transform: translateY(-2px); box-shadow: 0 0 0 5px rgba(59, 130, 246, .16), 0 0 30px rgba(99, 102, 241, .78), 0 12px 30px rgba(0, 0, 0, .38); }
+@keyframes ai-floating-glow {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(59, 130, 246, .12), 0 0 22px rgba(99, 102, 241, .52), 0 10px 28px rgba(0, 0, 0, .35); }
+  50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, .16), 0 0 30px rgba(99, 102, 241, .72), 0 10px 28px rgba(0, 0, 0, .35); }
+}
 
 .cards {
   display: grid;
@@ -687,14 +727,32 @@ td .goal-actions { flex-wrap: nowrap; }
 .admin-user-status.unverified { color: #a66a13; }
 .admin-user-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-user-actions .button { min-height: 38px; padding: 0 11px; font-size: .75rem; }
-.admin-user-record { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 12px; padding: 16px; }
-.admin-user-record .admin-user-status { grid-column: 1; }
-.admin-user-record .admin-user-actions { grid-column: 2; justify-content: flex-start; }
+.admin-users-list { display: block; overflow-x: auto; padding-bottom: 5px; }
+.admin-users-header, .admin-user-record {
+  display: grid;
+  grid-template-columns: minmax(145px, 1.05fr) minmax(180px, 1.4fr) minmax(160px, 1.2fr) minmax(100px, .7fr) minmax(130px, .9fr) minmax(190px, 1.35fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 1010px;
+}
+.admin-users-header { padding: 0 10px 5px; color: var(--muted); font-size: .7rem; font-weight: 700; }
+.admin-user-record { margin-bottom: 6px; padding: 8px 10px; }
+.admin-user-record .admin-user-status, .admin-user-record .admin-user-actions { min-width: 0; margin: 0; }
+.admin-user-record .admin-user-status { font-size: .7rem; line-height: 1.35; }
+.admin-user-record .admin-user-actions { flex-wrap: nowrap; gap: 5px; }
+.admin-user-record .admin-user-actions .button { min-height: 34px; padding: 0 8px; font-size: .68rem; }
 .admin-subsection-heading { display: flex; justify-content: space-between; align-items: end; margin-top: 21px; }
 .admin-subsection-heading h3 { margin-top: 0; }
 .admin-subsection-heading .section-description { margin: 3px 0 0; }
 .subscription-assignment-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: end; gap: 12px; margin: 0 0 14px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-tint); }
 .subscription-assignment-form .button { white-space: nowrap; }
+.subscription-option-create-form { display: grid; grid-template-columns: minmax(140px, .8fr) minmax(180px, 1.2fr) minmax(200px, 1.4fr) auto; align-items: end; gap: 12px; margin: 0 0 14px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-tint); }
+.subscription-option-create-form > label { display: grid; min-width: 0; gap: 6px; margin: 0; color: var(--muted); font-size: .72rem; font-weight: 650; }
+.subscription-option-create-form input { width: 100%; min-width: 0; }
+.subscription-option-create-form .button { white-space: nowrap; }
+.subscription-option-record { grid-template-columns: minmax(125px, .8fr) minmax(170px, 1.2fr) minmax(190px, 1.4fr) auto auto; align-items: end; }
+.subscription-option-record .admin-check { white-space: nowrap; }
+.subscription-option-record button { white-space: nowrap; }
 .assignment-record { grid-template-columns: minmax(210px, 1.6fr) minmax(130px, .7fr) minmax(150px, .8fr) auto; align-items: end; }
 .assignment-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .assignment-actions .button { min-height: 39px; padding: 0 11px; font-size: .73rem; }
@@ -807,6 +865,8 @@ td .goal-actions { flex-wrap: nowrap; }
   }
   .utility-menu-section { gap: 6px; }
   .utility-action { min-height: 42px; padding: 7px 8px; font-size: .71rem; }
+  .ai-floating-button { right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); min-width: 68px; min-height: 52px; padding: 0 14px; }
+  body:has(.ai-floating-button:not([hidden])) .install-button:not([hidden]) { bottom: calc(153px + env(safe-area-inset-bottom)); }
   .reports-heading { display: block; }
   .reports-heading .section-description { margin-top: 8px; }
   .report-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -921,9 +981,11 @@ td .goal-actions { flex-wrap: nowrap; }
   .admin-record { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .admin-inline-form { align-items: stretch; flex-direction: column; }
   .admin-inline-form > input, .admin-inline-form > select { flex: initial; }
-  .admin-create-user-form, .subscription-assignment-form { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; }
-  .admin-user-record { grid-template-columns: minmax(0, 1fr); }
-  .admin-user-record .admin-user-status, .admin-user-record .admin-user-actions { grid-column: 1; }
+  .admin-create-user-form, .subscription-assignment-form, .subscription-option-create-form { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .admin-users-header, .admin-user-record { grid-template-columns: 150px 200px 180px 100px 140px 210px; }
+  .subscription-option-record { grid-template-columns: minmax(0, 1fr); }
+  .subscription-option-record .admin-check { justify-self: start; }
+  .subscription-option-record button { width: 100%; }
   .assignment-record { grid-template-columns: minmax(0, 1fr); }
   .assignment-actions { grid-column: 1; }
   .admin-settings-form .two-cols { grid-template-columns: minmax(0, 1fr); gap: 0; }

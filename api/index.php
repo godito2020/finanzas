@@ -99,6 +99,7 @@ function database(): PDO
             is_active INTEGER NOT NULL DEFAULT 1,
             email_verified INTEGER NOT NULL DEFAULT 1,
             onboarding_completed INTEGER NOT NULL DEFAULT 1,
+            paid_access_required INTEGER NOT NULL DEFAULT 0,
             timezone TEXT NOT NULL DEFAULT \'UTC\',
             terms_version TEXT NOT NULL DEFAULT \'\',
             terms_accepted_at INTEGER,
@@ -307,6 +308,8 @@ function database(): PDO
             option_id INTEGER NOT NULL REFERENCES subscription_options(id),
             payment_method TEXT NOT NULL,
             payment_reference TEXT NOT NULL,
+            payment_currency TEXT NOT NULL DEFAULT \'PEN\',
+            payment_amount REAL NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT \'pending\' CHECK(status IN (\'pending\', \'approved\', \'rejected\')),
             requested_at INTEGER NOT NULL,
             processed_at INTEGER
@@ -325,6 +328,9 @@ function database(): PDO
     }
     if (!in_array('onboarding_completed', $userColumns, true)) {
         $connection->exec('ALTER TABLE users ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!in_array('paid_access_required', $userColumns, true)) {
+        $connection->exec('ALTER TABLE users ADD COLUMN paid_access_required INTEGER NOT NULL DEFAULT 0');
     }
     if (!in_array('terms_version', $userColumns, true)) {
         $connection->exec("ALTER TABLE users ADD COLUMN terms_version TEXT NOT NULL DEFAULT ''");
@@ -355,12 +361,26 @@ function database(): PDO
     if (!in_array('is_trial', $assignmentColumns, true)) {
         $connection->exec('ALTER TABLE subscription_assignments ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0');
     }
+    $paymentRequestColumns = array_column($connection->query('PRAGMA table_info(plan_payment_requests)')->fetchAll(), 'name');
+    if (!in_array('payment_currency', $paymentRequestColumns, true)) {
+        $connection->exec("ALTER TABLE plan_payment_requests ADD COLUMN payment_currency TEXT NOT NULL DEFAULT 'PEN'");
+    }
+    if (!in_array('payment_amount', $paymentRequestColumns, true)) {
+        $connection->exec('ALTER TABLE plan_payment_requests ADD COLUMN payment_amount REAL NOT NULL DEFAULT 0');
+    }
     $connection->exec(
         "INSERT OR IGNORE INTO subscription_options (name, description, features_json, billing_period, price_amount, price_currency, trial_days, active, created_at)
          VALUES
          ('Gratis', 'Registro financiero básico, resumen y una meta de ahorro.', '[]', 'free', 0, 'PEN', 0, 1, strftime('%s','now')),
-         ('Mensual', 'Funciones Pro con prueba de 10 días; luego S/ 15 cada mes.', '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]', 'monthly', 15, 'PEN', 10, 1, strftime('%s','now')),
+         ('Mensual', 'Funciones Pro por S/ 10 al mes. Acceso habilitado tras confirmar el pago.', '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]', 'monthly', 10, 'PEN', 0, 1, strftime('%s','now')),
          ('Anual', 'Funciones Pro por S/ 150 al año.', '[\"Pagos y deudas\",\"Alertas por correo\",\"Presupuestos\",\"Reportes\"]', 'yearly', 150, 'PEN', 10, 1, strftime('%s','now'))"
+    );
+    $connection->exec(
+        "UPDATE subscription_options
+         SET description = 'Funciones Pro por S/ 10 al mes. Acceso habilitado tras confirmar el pago.',
+             price_amount = 10, price_currency = 'PEN', trial_days = 0
+         WHERE billing_period = 'monthly' AND active = 1
+           AND (price_amount != 10 OR price_currency != 'PEN' OR trial_days != 0)"
     );
     $connection->exec("UPDATE subscription_options SET trial_days = 0 WHERE billing_period = 'yearly'");
     $monthlyPlan = $connection->query(
@@ -381,7 +401,7 @@ function database(): PDO
                      WHERE subscription_assignments.user_id = users.id
                        AND subscription_options.billing_period IN ('monthly', 'yearly')
                  )
-                 WHERE role = 'user' AND trial_started_at IS NULL
+                 WHERE role = 'user' AND paid_access_required = 0 AND trial_started_at IS NULL
                    AND EXISTS (
                      SELECT 1 FROM subscription_assignments
                      JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
@@ -395,6 +415,7 @@ function database(): PDO
                  SELECT users.id, ?, 'active', ?, ?, 1, ?
                  FROM users
                  WHERE users.role = 'user' AND users.is_active = 1 AND users.email_verified = 1
+                   AND users.paid_access_required = 0
                    AND users.trial_started_at IS NULL
                    AND NOT EXISTS (
                      SELECT 1 FROM subscription_assignments
@@ -405,7 +426,7 @@ function database(): PDO
             )->execute([(int) $monthlyPlan['id'], $trialStart, $trialEnd, time()]);
             $connection->prepare(
                 "UPDATE users SET trial_started_at = ?
-                 WHERE role = 'user' AND is_active = 1 AND email_verified = 1 AND trial_started_at IS NULL
+                 WHERE role = 'user' AND is_active = 1 AND email_verified = 1 AND paid_access_required = 0 AND trial_started_at IS NULL
                    AND NOT EXISTS (
                      SELECT 1 FROM subscription_assignments
                      JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
@@ -573,7 +594,8 @@ function authenticatedUser(): array
     }
 
     $statement = database()->prepare(
-        'SELECT users.id, users.name, users.email, users.role, users.onboarding_completed, auth_tokens.token_hash
+        'SELECT users.id, users.name, users.email, users.role, users.onboarding_completed,
+                users.paid_access_required, auth_tokens.token_hash
          FROM auth_tokens JOIN users ON users.id = auth_tokens.user_id
          WHERE auth_tokens.token_hash = ? AND auth_tokens.expires_at > ?
            AND users.is_active = 1 AND users.email_verified = 1'
@@ -584,6 +606,26 @@ function authenticatedUser(): array
         throw new ApiError(401, 'La sesión expiró. Inicia sesión de nuevo.');
     }
     return $user;
+}
+
+function userHasPaidAccess(array $user): bool
+{
+    if (($user['role'] ?? '') === 'master' || !(int) ($user['paid_access_required'] ?? 0)) {
+        return true;
+    }
+    $statement = database()->prepare(
+        "SELECT 1 FROM subscription_assignments
+         JOIN subscription_options ON subscription_options.id = subscription_assignments.option_id
+         WHERE subscription_assignments.user_id = ? AND subscription_assignments.status = 'active'
+           AND subscription_assignments.is_trial = 0
+           AND subscription_options.billing_period IN ('monthly', 'yearly')
+           AND subscription_assignments.starts_at <= ?
+           AND (subscription_assignments.ends_at IS NULL OR subscription_assignments.ends_at >= ?)
+         LIMIT 1"
+    );
+    $today = date('Y-m-d');
+    $statement->execute([(int) $user['id'], $today, $today]);
+    return (bool) $statement->fetchColumn();
 }
 
 function publicUser(array $user): array
@@ -1405,8 +1447,9 @@ function handleRequest(string $action, string $method, array $data): array
         try {
             $statement = $db->prepare(
                 'INSERT INTO users
-                    (name, email, password_hash, email_verified, onboarding_completed, terms_version, terms_accepted_at, created_at)
-                 VALUES (?, ?, ?, 0, 0, ?, ?, ?)'
+                    (name, email, password_hash, email_verified, onboarding_completed, paid_access_required,
+                     terms_version, terms_accepted_at, created_at)
+                 VALUES (?, ?, ?, 0, 0, 1, ?, ?, ?)'
             );
             $acceptedAt = time();
             $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), TERMS_VERSION, $acceptedAt, $acceptedAt]);
@@ -1423,7 +1466,7 @@ function handleRequest(string $action, string $method, array $data): array
             error_log('Finanza activation email error: ' . $mailError->getMessage());
             throw new ApiError(503, 'La cuenta se creó, pero no se pudo enviar el código. Revisa el correo e intenta reenviarlo.');
         }
-        return ['message' => 'Te enviamos un código de activación. Ingrésalo para confirmar tu correo y entrar.'];
+        return ['message' => 'Te enviamos un código de activación. Confirma tu correo para continuar con la activación de tu cuenta.'];
     }
 
     if ($action === 'resend-activation' && $method === 'POST') {
@@ -1462,6 +1505,7 @@ function handleRequest(string $action, string $method, array $data): array
         }
         $statement = $db->prepare(
             'SELECT users.id, users.name, users.email, users.role, users.email_verified,
+                    users.paid_access_required,
                     email_verifications.code_hash, email_verifications.expires_at, email_verifications.attempts
              FROM users LEFT JOIN email_verifications ON email_verifications.user_id = users.id
              WHERE users.email = ?'
@@ -1488,7 +1532,7 @@ function handleRequest(string $action, string $method, array $data): array
                 "SELECT id, trial_days FROM subscription_options
                  WHERE billing_period = 'monthly' AND active = 1 ORDER BY id LIMIT 1"
             )->fetch();
-            if ($trialPlan && (int) $trialPlan['trial_days'] > 0) {
+            if (!(int) $verification['paid_access_required'] && $trialPlan && (int) $trialPlan['trial_days'] > 0) {
                 $trialStart = (new DateTimeImmutable('today'))->format('Y-m-d');
                 $trialEnd = (new DateTimeImmutable($trialStart))
                     ->modify('+' . ((int) $trialPlan['trial_days'] - 1) . ' days')
@@ -1629,6 +1673,10 @@ function handleRequest(string $action, string $method, array $data): array
 
     $user = authenticatedUser();
     $userId = (int) $user['id'];
+    if (!userHasPaidAccess($user) &&
+        !in_array($action, ['me', 'logout', 'plans', 'plan-status', 'plan-request', 'public-settings'], true)) {
+        throw new ApiError(402, 'Completa el pago mensual para habilitar el acceso a Finanza.');
+    }
 
     if ($action === 'suggestion' && $method === 'POST') {
         $message = requiredString($data, 'message', 1200);
@@ -1687,6 +1735,7 @@ function handleRequest(string $action, string $method, array $data): array
         return [
             'subscription' => $subscription,
             'hasPendingRequest' => (bool) $pending->fetchColumn(),
+            'accessAllowed' => userHasPaidAccess($user),
             'featureAccess' => [
                 'payments' => in_array('Pagos y deudas', $features, true),
                 'debts' => in_array('Pagos y deudas', $features, true),
@@ -1707,6 +1756,16 @@ function handleRequest(string $action, string $method, array $data): array
             !in_array($methodName, ['yape', 'transfer'], true)) {
             throw new ApiError(422, 'Selecciona un plan y un método de pago manual válido.');
         }
+        if ((int) ($user['paid_access_required'] ?? 0) && $period !== 'monthly') {
+            throw new ApiError(422, 'La suscripción inicial disponible es mensual.');
+        }
+        $paymentCurrency = strtoupper((string) ($data['paymentCurrency'] ?? 'PEN'));
+        if (!in_array($paymentCurrency, ['PEN', 'USD'], true)) {
+            throw new ApiError(422, 'Selecciona soles o dólares como moneda de pago.');
+        }
+        if ($paymentCurrency === 'USD' && $methodName === 'yape') {
+            throw new ApiError(422, 'Los pagos en dólares deben realizarse por transferencia bancaria.');
+        }
         if ($methodName === 'yape' && appSetting('yape_number') === '' ||
             $methodName === 'transfer' && appSetting('bank_accounts') === '') {
             throw new ApiError(422, 'El administrador aún no configuró los datos de este método de pago.');
@@ -1720,17 +1779,36 @@ function handleRequest(string $action, string $method, array $data): array
             throw new ApiError(409, 'Ya tienes un pago de plan pendiente de revisión.');
         }
         $plan = $db->prepare(
-            'SELECT id FROM subscription_options WHERE billing_period = ? AND active = 1 LIMIT 1'
+            'SELECT id, price_amount, price_currency FROM subscription_options
+             WHERE billing_period = ? AND active = 1 LIMIT 1'
         );
         $plan->execute([$period]);
-        $optionId = $plan->fetchColumn();
-        if ($optionId === false) {
+        $selectedPlan = $plan->fetch();
+        if (!$selectedPlan) {
             throw new ApiError(404, 'Ese plan no está disponible.');
         }
+        $planCurrency = strtoupper((string) $selectedPlan['price_currency']);
+        if (!in_array($planCurrency, ['PEN', 'USD'], true)) {
+            throw new ApiError(409, 'La moneda configurada para este plan no es compatible.');
+        }
+        $planAmount = (float) $selectedPlan['price_amount'];
+        $expectedAmount = $paymentCurrency === $planCurrency
+            ? $planAmount
+            : ($paymentCurrency === 'USD' ? $planAmount / 3.60 : $planAmount * 3.60);
+        $expectedAmount = round($expectedAmount, 2);
+        $submittedAmount = $data['paymentAmount'] ?? $expectedAmount;
+        if (!is_numeric($submittedAmount) || !is_finite((float) $submittedAmount) ||
+            abs((float) $submittedAmount - $expectedAmount) > 0.009) {
+            throw new ApiError(422, 'El importe no coincide con el precio del plan y el tipo de cambio vigente.');
+        }
         $db->prepare(
-            "INSERT INTO plan_payment_requests (user_id, option_id, payment_method, payment_reference, status, requested_at)
-             VALUES (?, ?, ?, ?, 'pending', ?)"
-        )->execute([$userId, (int) $optionId, $methodName, $reference, time()]);
+            "INSERT INTO plan_payment_requests
+                (user_id, option_id, payment_method, payment_reference, payment_currency, payment_amount, status, requested_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)"
+        )->execute([
+            $userId, (int) $selectedPlan['id'], $methodName, $reference,
+            $paymentCurrency, $expectedAmount, time()
+        ]);
         return ['message' => 'Solicitud enviada. La activación se realizará cuando el administrador confirme el pago.'];
     }
     if ($action === 'ai-subscription-request' && $method === 'POST') {
@@ -2128,6 +2206,12 @@ function handleRequest(string $action, string $method, array $data): array
                 'SELECT plan_payment_requests.id, plan_payment_requests.status,
                         plan_payment_requests.payment_method AS paymentMethod,
                         plan_payment_requests.payment_reference AS paymentReference,
+                            CASE WHEN plan_payment_requests.payment_amount > 0
+                                 THEN plan_payment_requests.payment_currency
+                                 ELSE subscription_options.price_currency END AS paymentCurrency,
+                            CASE WHEN plan_payment_requests.payment_amount > 0
+                                 THEN plan_payment_requests.payment_amount
+                                 ELSE subscription_options.price_amount END AS paymentAmount,
                         plan_payment_requests.requested_at AS requestedAt,
                         users.name, users.email, subscription_options.name AS planName,
                         subscription_options.billing_period AS billingPeriod,
@@ -2141,6 +2225,7 @@ function handleRequest(string $action, string $method, array $data): array
                 $row['id'] = (int) $row['id'];
                 $row['requestedAt'] = (int) $row['requestedAt'];
                 $row['priceAmount'] = (float) $row['priceAmount'];
+                $row['paymentAmount'] = (float) $row['paymentAmount'];
                 return $row;
             }, $requests)];
         }

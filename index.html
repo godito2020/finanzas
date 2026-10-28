@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#f7f8f4" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Finanza" />
     <title>Finanza — tus números en orden</title>
     <link rel="manifest" href="manifest.webmanifest" />
@@ -77,6 +77,33 @@
             </label>
             <button class="button button-primary wide" type="submit">Crear cuenta</button>
             <p class="auth-switch">¿Ya tienes cuenta? <button class="auth-link" data-auth-view="login" type="button">Inicia sesión</button></p>
+          </form>
+
+          <form class="auth-form required-payment-form" id="requiredPaymentForm" hidden>
+            <p class="eyebrow">ACTIVA TU ACCESO</p>
+            <p>Para comenzar a usar Finanza, realiza el pago de tu suscripción mensual. El acceso se habilitará cuando el administrador confirme la operación.</p>
+            <div class="required-payment-price">
+              <span>Mensualidad</span>
+              <strong id="requiredPaymentAmount">S/ 10.00</strong>
+              <small id="requiredPaymentEquivalent">USD 2.78 · tipo de cambio fijo S/ 3.60 por USD</small>
+            </div>
+            <label for="requiredPaymentCurrency">Moneda del pago</label>
+            <select id="requiredPaymentCurrency">
+              <option value="PEN">Soles (PEN)</option>
+              <option value="USD">Dólares (USD)</option>
+            </select>
+            <label for="requiredPaymentMethod">Método de pago</label>
+            <select id="requiredPaymentMethod">
+              <option value="yape">Yape (soles)</option>
+              <option value="transfer">Transferencia bancaria</option>
+            </select>
+            <div class="plan-payment-instructions" id="requiredPaymentInstructions"></div>
+            <label for="requiredPaymentReference">Número de operación o referencia</label>
+            <input id="requiredPaymentReference" maxlength="120" required />
+            <p class="auth-message" id="requiredPaymentStatus" role="status" aria-live="polite" hidden></p>
+            <button class="button button-primary wide" type="submit" id="requiredPaymentSubmit">Enviar pago para validación</button>
+            <button class="button button-quiet wide" type="button" id="refreshPaymentStatusButton">Ya pagué · Verificar estado</button>
+            <button class="auth-link" type="button" id="paymentGateLogoutButton">Cerrar sesión</button>
           </form>
 
           <form class="auth-form" id="verifyEmailForm" hidden>
@@ -191,6 +218,10 @@
           </div>
         </header>
         <button class="button button-install install-button" type="button" id="installButton" hidden aria-label="Instalar Finanza">↓ Instalar app</button>
+        <button class="ai-floating-button" type="button" id="aiFloatingButton" aria-label="Dictar movimiento con inteligencia artificial" title="Dictar movimiento con IA" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"></path></svg>
+          <span>IA</span>
+        </button>
         <p class="app-notice" id="appNotice" role="status" aria-live="polite" hidden></p>
         <p class="app-notice currency-history-notice" id="currencyHistoryNotice" role="status" hidden></p>
 
@@ -396,7 +427,7 @@
               <button class="button button-quiet wide" type="button" id="openAiAssistantButton" hidden>Registro inteligente con IA (Pro)</button>
               <div class="button-row">
                 <button class="button button-primary wide" type="submit" id="submitButton">Guardar movimiento</button>
-                <button class="button button-quiet" type="button" id="cancelEditButton" hidden>Cancelar edición</button>
+                <button class="button button-quiet" type="button" id="cancelEditButton">Limpiar</button>
               </div>
             </form>
           </section>
@@ -603,13 +634,15 @@
           </div>
           <section class="panel admin-section">
             <div class="panel-header"><div><p class="eyebrow">CUENTAS</p><h2>Clientes</h2></div></div>
+            <div class="admin-subsection-heading"><div><h3>Agregar cliente</h3><p class="section-description">Crea una cuenta para un cliente de forma ordenada.</p></div></div>
             <form id="adminUserForm" class="admin-inline-form admin-create-user-form">
               <label for="adminUserName">Nombre<input id="adminUserName" type="text" maxlength="80" placeholder="Nombre del cliente" required /></label>
               <label for="adminUserEmail">Correo electrónico<input id="adminUserEmail" type="email" maxlength="254" placeholder="cliente@correo.com" required /></label>
               <label for="adminUserPassword">Contraseña inicial<input id="adminUserPassword" type="password" minlength="12" placeholder="Mínimo 12 caracteres" required /></label>
               <button class="button button-primary" type="submit">Agregar cliente</button>
             </form>
-            <div id="adminUsersList" class="admin-record-list" aria-live="polite"></div>
+            <div class="admin-subsection-heading"><div><h3>Clientes registrados</h3><p class="section-description">Edita los datos o el estado de cada cuenta desde su ficha.</p></div></div>
+            <div id="adminUsersList" class="admin-record-list admin-users-list" aria-live="polite"></div>
           </section>
           <section class="panel admin-section">
             <div class="panel-header"><div><p class="eyebrow">IDENTIDAD Y CORREO</p><h2>Configuración</h2></div></div>
@@ -696,17 +729,16 @@
           </section>
           <section class="panel admin-section">
             <div class="panel-header"><div><p class="eyebrow">GESTIÓN FLEXIBLE</p><h2>Opciones y suscripciones</h2></div></div>
-            <h3>Solicitudes de IA Pro (S/ 10 mensuales)</h3>
-            <p class="section-description">Verifica el pago fuera de la aplicación y confirma la activación para habilitar 30 días. La renovación mensual es manual.</p>
+            <div class="admin-subsection-heading"><div><h3>Solicitudes de IA Pro</h3><p class="section-description">Verifica el pago fuera de la aplicación y confirma la activación para habilitar 30 días. La renovación mensual es manual.</p></div></div>
             <div id="aiSubscriptionRequestsList" class="admin-record-list" aria-live="polite"></div>
-            <form id="subscriptionOptionForm" class="admin-settings-form">
-              <div class="field-row two-cols">
-                <div><label for="optionNameInput">Nombre de la opción</label><input id="optionNameInput" maxlength="60" required /></div>
-                <div><label for="optionFeaturesInput">Características (separadas por coma)</label><input id="optionFeaturesInput" maxlength="1000" placeholder="Reportes, soporte prioritario" /></div>
-              </div>
-              <div class="field-row"><label for="optionDescriptionInput">Descripción</label><input id="optionDescriptionInput" maxlength="300" /></div>
+            <div class="admin-subsection-heading"><div><h3>Crear opción</h3><p class="section-description">Define el nombre, las características y una descripción para la opción.</p></div></div>
+            <form id="subscriptionOptionForm" class="subscription-option-create-form">
+              <label for="optionNameInput">Nombre de la opción<input id="optionNameInput" maxlength="60" required /></label>
+              <label for="optionDescriptionInput">Descripción<input id="optionDescriptionInput" maxlength="300" /></label>
+              <label for="optionFeaturesInput">Características<input id="optionFeaturesInput" maxlength="1000" placeholder="Reportes, soporte prioritario" /></label>
               <button class="button button-primary" type="submit">Crear opción</button>
             </form>
+            <div class="admin-subsection-heading"><div><h3>Opciones disponibles</h3><p class="section-description">Actualiza los datos o desactiva una opción sin eliminarla.</p></div></div>
             <div id="subscriptionOptionsList" class="admin-record-list" aria-live="polite"></div>
             <div class="admin-subsection-heading"><div><h3>Asignar una opción</h3><p class="section-description">Selecciona un cliente, un plan y el período de vigencia.</p></div></div>
             <form id="subscriptionAssignmentForm" class="subscription-assignment-form">
@@ -716,8 +748,9 @@
               <label for="assignmentEndInput">Fin<input id="assignmentEndInput" type="date" required /></label>
               <button class="button button-primary" type="submit">Asignar opción</button>
             </form>
+            <div class="admin-subsection-heading"><div><h3>Asignaciones existentes</h3><p class="section-description">Administra el estado y la vigencia de las opciones asignadas.</p></div></div>
             <div id="subscriptionAssignmentsList" class="admin-record-list" aria-live="polite"></div>
-            <h3>Solicitudes de planes</h3>
+            <div class="admin-subsection-heading"><div><h3>Solicitudes de planes</h3><p class="section-description">Revisa las operaciones pendientes y confirma el pago para habilitar el acceso.</p></div></div>
             <div id="planPaymentRequestsList" class="admin-record-list" aria-live="polite"></div>
           </section>
         </section>

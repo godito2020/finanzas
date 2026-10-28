@@ -23,6 +23,7 @@ const goalsList = document.getElementById('goalsList');
 const monthlyChart = document.getElementById('monthlyChart');
 const categoryChart = document.getElementById('categoryChart');
 const installButton = document.getElementById('installButton');
+const aiFloatingButton = document.getElementById('aiFloatingButton');
 const authInstallButton = document.getElementById('authInstallButton');
 const authInstallHelp = document.getElementById('authInstallHelp');
 const reportButton = document.getElementById('reportButton');
@@ -35,6 +36,15 @@ const authTitle = document.getElementById('authTitle');
 const authIntro = document.getElementById('authIntro');
 const loginForm = document.getElementById('loginForm');
 const registerForm = document.getElementById('registerForm');
+const requiredPaymentForm = document.getElementById('requiredPaymentForm');
+const requiredPaymentCurrency = document.getElementById('requiredPaymentCurrency');
+const requiredPaymentMethod = document.getElementById('requiredPaymentMethod');
+const requiredPaymentAmount = document.getElementById('requiredPaymentAmount');
+const requiredPaymentEquivalent = document.getElementById('requiredPaymentEquivalent');
+const requiredPaymentInstructions = document.getElementById('requiredPaymentInstructions');
+const requiredPaymentReference = document.getElementById('requiredPaymentReference');
+const requiredPaymentStatus = document.getElementById('requiredPaymentStatus');
+const requiredPaymentSubmit = document.getElementById('requiredPaymentSubmit');
 const verifyEmailForm = document.getElementById('verifyEmailForm');
 const verificationEmail = document.getElementById('verificationEmail');
 const verificationCode = document.getElementById('verificationCode');
@@ -296,10 +306,12 @@ function updateAppPageVisibility() {
 function setAppPage(pageName, { scroll = false } = {}) {
   const isMobile = window.matchMedia('(max-width: 760px)').matches;
   const matchingPage = appPages.find((page) => isMobile
-    ? (page.dataset.mobilePage || page.dataset.appPage) === pageName
+    ? page.dataset.appPage === pageName || page.dataset.mobilePage === pageName
     : page.dataset.appPage === pageName);
-  if (!matchingPage) return;
-  activeAppPage = isMobile ? (matchingPage.dataset.mobilePage || pageName) : pageName;
+  if (!matchingPage) return false;
+  activeAppPage = isMobile
+    ? (matchingPage.dataset.mobilePage || matchingPage.dataset.appPage)
+    : matchingPage.dataset.appPage;
   updateAppPageVisibility();
   const mobilePageName = isMobile ? activeAppPage : (matchingPage.dataset.mobilePage || pageName);
   setActiveMobileNav(mobileNav.querySelector(`[data-page="${mobilePageName}"]`));
@@ -326,6 +338,7 @@ function setAppPage(pageName, { scroll = false } = {}) {
   document.getElementById('pageEyebrow').textContent = pageCopy[0];
   document.getElementById('pageTitle').textContent = pageCopy[1];
   if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' });
+  return true;
 }
 
 function pageForHash(hash) {
@@ -335,6 +348,18 @@ function pageForHash(hash) {
     ? page?.dataset.mobilePage || page?.dataset.appPage
     : page?.dataset.appPage) ||
     (hash === 'overview' ? 'summary' : null);
+}
+
+function handleAppNavigation(event) {
+  const link = event.target.closest('a[href^="#"]');
+  if (!link || !appShell.contains(link)) return;
+  const pageName = link.dataset.page || pageForHash(link.hash.slice(1));
+  if (!pageName) return;
+  event.preventDefault();
+  if (!adminPanel.hidden) closeAdminPanel();
+  if (!setAppPage(pageName, { scroll: true })) return;
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}${link.hash}`);
+  utilityMenu.open = false;
 }
 
 function initializeTheme() {
@@ -395,6 +420,11 @@ function initialize() {
   debtsList.addEventListener('click', handleDebtListClick);
   emergencyFundForm.addEventListener('submit', handleEmergencyFundSubmit);
   planPaymentForm.addEventListener('submit', handlePlanPaymentSubmit);
+  requiredPaymentForm.addEventListener('submit', handleRequiredPaymentSubmit);
+  requiredPaymentCurrency.addEventListener('change', renderRequiredPayment);
+  requiredPaymentMethod.addEventListener('change', renderRequiredPaymentInstructions);
+  document.getElementById('refreshPaymentStatusButton').addEventListener('click', refreshRequiredPaymentStatus);
+  document.getElementById('paymentGateLogoutButton').addEventListener('click', handlePaymentGateLogout);
   planPaymentMethodInput.addEventListener('change', renderPlanPaymentInstructions);
   cancelPlanRequestButton.addEventListener('click', () => { planPaymentForm.hidden = true; });
   document.getElementById('planCards').addEventListener('click', handlePlanCardClick);
@@ -407,29 +437,7 @@ function initialize() {
   document.querySelectorAll('[data-period]').forEach((button) => {
     button.addEventListener('click', () => setDashboardPeriod(button.dataset.period));
   });
-  mobileNav.addEventListener('click', (event) => {
-    const link = event.target.closest('a[data-page]');
-    if (!link) return;
-    event.preventDefault();
-    history.replaceState(null, '', link.hash);
-    setAppPage(link.dataset.page, { scroll: true });
-  });
-  document.querySelector('.nav').addEventListener('click', (event) => {
-    const link = event.target.closest('a[data-page]');
-    if (!link) return;
-    event.preventDefault();
-    history.replaceState(null, '', link.hash);
-    setAppPage(link.dataset.page, { scroll: true });
-  });
-  document.getElementById('overview').addEventListener('click', (event) => {
-    const link = event.target.closest('a[href^="#"]');
-    if (!link || link.closest('.mobile-nav')) return;
-    const pageName = pageForHash(link.hash.slice(1));
-    if (!pageName) return;
-    event.preventDefault();
-    history.replaceState(null, '', link.hash);
-    setAppPage(pageName, { scroll: true });
-  });
+  appShell.addEventListener('click', handleAppNavigation);
   utilityMenu.addEventListener('click', (event) => {
     if (event.target.closest('button, a')) utilityMenu.open = false;
   });
@@ -444,8 +452,7 @@ function initialize() {
     if (pageName) setAppPage(pageName);
   });
   window.addEventListener('resize', () => {
-    updateAppPageVisibility();
-    setAppPage(activeAppPage);
+    setAppPage(pageForHash(window.location.hash.slice(1)) || 'summary');
   });
   dashboardStartDate.addEventListener('change', render);
   dashboardEndDate.addEventListener('change', render);
@@ -456,6 +463,10 @@ function initialize() {
     updateExchangeRateField();
   });
   openAiAssistantButton.addEventListener('click', openAiAssistant);
+  aiFloatingButton.addEventListener('click', () => {
+    openAiAssistant();
+    startAiDictation();
+  });
   requestAiAccessButton.addEventListener('click', requestAiSubscription);
   closeAiAssistantButton.addEventListener('click', () => aiAssistantDialog.close());
   cancelAiAssistantButton.addEventListener('click', () => aiAssistantDialog.close());
@@ -473,7 +484,11 @@ function initialize() {
   startVoiceButton.addEventListener('click', startAiDictation);
   goalForm.addEventListener('submit', handleGoalSubmit);
   logoutButton.addEventListener('click', handleLogout);
-  cancelEditButton.addEventListener('click', resetFormState);
+  cancelEditButton.addEventListener('click', () => {
+    const wasEditing = Boolean(editingTransactionId);
+    resetFormState();
+    showAppNotice(wasEditing ? 'Edición cancelada.' : 'Formulario limpio.');
+  });
   filterTypeInput.addEventListener('change', renderTable);
   filterCategoryInput.addEventListener('change', renderTable);
   filterMonthInput.addEventListener('change', renderTable);
@@ -713,12 +728,149 @@ async function restoreSession() {
   try {
     const result = await apiRequest('me');
     currentUser = result.user;
+    if (await showRequiredPaymentIfNeeded()) return;
     await loadAccountData();
     showApp();
     maybeStartOnboarding();
   } catch (error) {
     clearAuthSession();
     showAuthMessage(`No pudimos restaurar tu sesión. ${error.message}`);
+  }
+}
+
+async function showRequiredPaymentIfNeeded() {
+  const status = await apiRequest('plan-status');
+  currentSubscription = status.subscription;
+  hasPendingPlanRequest = status.hasPendingRequest;
+  if (status.accessAllowed) return false;
+  const result = await apiRequest('plans');
+  subscriptionPlans = result.plans;
+  paymentInstructions = result.paymentInstructions;
+  renderRequiredPayment();
+  showAuthView('requiredPayment');
+  return true;
+}
+
+function renderRequiredPayment() {
+  requiredPaymentStatus.classList.remove('error');
+  const plan = subscriptionPlans.find((item) => item.billingPeriod === 'monthly');
+  const amount = plan ? Number(plan.priceAmount) : 10;
+  const currency = requiredPaymentCurrency.value;
+  const paymentAmount = currency === 'USD' ? Math.round((amount / 3.6) * 100) / 100 : amount;
+  requiredPaymentAmount.textContent = formatCurrency(paymentAmount, currency);
+  requiredPaymentEquivalent.textContent = currency === 'USD'
+    ? `${formatCurrency(amount, 'PEN')} · tipo de cambio fijo S/ 3.60 por USD`
+    : `${formatCurrency(Math.round((amount / 3.6) * 100) / 100, 'USD')} · tipo de cambio fijo S/ 3.60 por USD`;
+  requiredPaymentSubmit.disabled = !plan || hasPendingPlanRequest;
+  requiredPaymentSubmit.textContent = hasPendingPlanRequest
+    ? 'Pago enviado · En revisión'
+    : plan ? 'Enviar pago para validación' : 'Plan no disponible';
+  requiredPaymentReference.disabled = hasPendingPlanRequest || !plan;
+  requiredPaymentStatus.hidden = !hasPendingPlanRequest;
+  requiredPaymentStatus.textContent = hasPendingPlanRequest
+    ? 'Tu operación está pendiente de validación. Puedes verificar el estado más tarde.'
+    : '';
+  const yapeOption = requiredPaymentMethod.querySelector('option[value="yape"]');
+  yapeOption.disabled = currency === 'USD';
+  if (currency === 'USD' && requiredPaymentMethod.value === 'yape') {
+    requiredPaymentMethod.value = 'transfer';
+  }
+  renderRequiredPaymentInstructions();
+}
+
+function renderRequiredPaymentInstructions() {
+  if (requiredPaymentMethod.value === 'yape') {
+    const number = paymentInstructions.yapeNumber;
+    const owner = paymentInstructions.yapeName;
+    requiredPaymentInstructions.innerHTML = number
+      ? `<p>Yapea al <strong>${escapeHtml(number)}</strong>${owner ? ` · Titular: ${escapeHtml(owner)}` : ''}. Luego ingresa el número de operación.</p>`
+      : '<p>El administrador aún no configuró un número de Yape. Elige transferencia o inténtalo más tarde.</p>';
+  } else {
+    const accounts = paymentInstructions.bankAccounts;
+    requiredPaymentInstructions.innerHTML = accounts
+      ? `<p>${escapeHtml(accounts).replace(/\n/g, '<br>')}</p>`
+      : '<p>El administrador aún no configuró cuentas bancarias. Elige Yape o inténtalo más tarde.</p>';
+  }
+}
+
+async function handleRequiredPaymentSubmit(event) {
+  event.preventDefault();
+  if (hasPendingPlanRequest) return;
+  const plan = subscriptionPlans.find((item) => item.billingPeriod === 'monthly');
+  if (!plan) return;
+  const currency = requiredPaymentCurrency.value;
+  const amount = currency === 'USD'
+    ? Math.round((Number(plan.priceAmount) / 3.6) * 100) / 100
+    : Number(plan.priceAmount);
+  requiredPaymentStatus.classList.remove('error');
+  requiredPaymentStatus.hidden = true;
+  requiredPaymentSubmit.disabled = true;
+  try {
+    const result = await apiRequest('plan-request', {
+      method: 'POST',
+      body: {
+        billingPeriod: 'monthly',
+        paymentMethod: requiredPaymentMethod.value,
+        paymentReference: requiredPaymentReference.value.trim(),
+        paymentCurrency: currency,
+        paymentAmount: amount
+      }
+    });
+    hasPendingPlanRequest = true;
+    requiredPaymentReference.value = '';
+    renderRequiredPayment();
+    requiredPaymentStatus.hidden = false;
+    requiredPaymentStatus.textContent = result.message;
+  } catch (error) {
+    requiredPaymentStatus.hidden = false;
+    requiredPaymentStatus.textContent = error.message;
+    requiredPaymentStatus.classList.add('error');
+  } finally {
+    requiredPaymentSubmit.disabled = hasPendingPlanRequest;
+  }
+}
+
+async function refreshRequiredPaymentStatus() {
+  const button = document.getElementById('refreshPaymentStatusButton');
+  button.disabled = true;
+  try {
+    const status = await apiRequest('plan-status');
+    currentSubscription = status.subscription;
+    hasPendingPlanRequest = status.hasPendingRequest;
+    if (status.accessAllowed) {
+      await loadAccountData();
+      showApp();
+      maybeStartOnboarding();
+      return;
+    }
+    renderRequiredPayment();
+    requiredPaymentStatus.hidden = false;
+    requiredPaymentStatus.classList.remove('error');
+    requiredPaymentStatus.textContent = hasPendingPlanRequest
+      ? 'El pago sigue pendiente de validación.'
+      : 'Aún no hay un pago aprobado. Puedes enviar tu operación cuando realices el pago.';
+  } catch (error) {
+    requiredPaymentStatus.hidden = false;
+    requiredPaymentStatus.classList.add('error');
+    requiredPaymentStatus.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handlePaymentGateLogout() {
+  const button = document.getElementById('paymentGateLogoutButton');
+  button.disabled = true;
+  try {
+    await apiRequest('logout', { method: 'POST', body: {} });
+    clearAuthSession();
+    showAuthView('login', 'Cerraste sesión.');
+  } catch (error) {
+    requiredPaymentStatus.hidden = false;
+    requiredPaymentStatus.classList.add('error');
+    requiredPaymentStatus.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -753,6 +905,7 @@ async function loadAccountData() {
   aiAssistantAccess = aiStatus;
   applyBaseCurrency(publicSettings.settings.baseCurrency);
   openAiAssistantButton.hidden = false;
+  aiFloatingButton.hidden = !aiStatus.available;
   openAiAssistantButton.textContent = aiStatus.isMaster
     ? 'Registro inteligente'
     : aiStatus.available
@@ -801,6 +954,7 @@ function showAuthView(view, message = '') {
     login: loginForm,
     setupMaster: setupMasterForm,
     register: registerForm,
+    requiredPayment: requiredPaymentForm,
     verifyEmail: verifyEmailForm,
     requestReset: requestResetForm,
     resetPassword: resetPasswordForm
@@ -808,7 +962,8 @@ function showAuthView(view, message = '') {
   const headings = {
     login: ['Qué gusto verte.', 'Inicia sesión para consultar tus movimientos desde cualquier dispositivo.'],
     setupMaster: ['Configura el acceso maestro.', 'Usa el código único definido en la configuración privada del servidor.'],
-    register: ['Empieza con claridad.', 'Crea tu cuenta para mantener tus movimientos y metas sincronizados.'],
+    register: ['Empieza con claridad.', 'Crea tu cuenta. La suscripción cuesta S/ 10 al mes o USD 2.78 y se activa tras validar el pago.'],
+    requiredPayment: ['Activa tu cuenta.', 'La suscripción mensual cuesta S/ 10 o USD 2.78. Enviaremos tu operación para validación manual antes de habilitar el acceso.'],
     verifyEmail: ['Confirma tu correo.', 'Ingresa el código de 8 dígitos que enviamos a tu correo para activar tu cuenta.'],
     requestReset: ['Recuperemos el acceso.', 'Te enviaremos un código de un solo uso a tu correo.'],
     resetPassword: ['Crea una nueva clave.', 'El código enviado a tu correo caduca en 15 minutos.']
@@ -1048,7 +1203,12 @@ function renderAdminUsers(users) {
     container.innerHTML = '<p class="empty-state">Todavía no hay cuentas de cliente.</p>';
     return;
   }
-  container.innerHTML = users.map((user) => `
+  container.innerHTML = `
+    <div class="admin-users-header" aria-hidden="true">
+      <span>Nombre</span><span>Correo</span><span>Nueva contraseña</span>
+      <span>Cuenta</span><span>Verificación</span><span>Acciones</span>
+    </div>
+    ${users.map((user) => `
     <form class="admin-record admin-user-record" data-user-id="${user.id}">
       <label>Nombre<input name="name" maxlength="80" value="${escapeHtml(user.name)}" required disabled /></label>
       <label>Correo<input name="email" type="email" maxlength="254" value="${escapeHtml(user.email)}" required disabled /></label>
@@ -1062,7 +1222,8 @@ function renderAdminUsers(users) {
         <button class="button button-delete user-delete-button" type="button">Eliminar</button>
       </div>
     </form>
-  `).join('');
+  `).join('')}
+  `;
   container.querySelectorAll('.admin-user-record').forEach((record) => {
     const fields = [...record.querySelectorAll('input')];
     const editButton = record.querySelector('.user-edit-button');
@@ -1427,7 +1588,7 @@ function renderPlanPaymentRequests(requests) {
     <article class="admin-record plan-request-record" data-plan-request-id="${request.id}">
       <div>
         <strong>${escapeHtml(request.name)} · ${escapeHtml(request.email)}</strong>
-        <small>${escapeHtml(request.planName)} · ${formatCurrency(request.priceAmount, 'PEN')} · ${request.paymentMethod === 'yape' ? 'Yape' : 'Transferencia'}</small>
+        <small>${escapeHtml(request.planName)} · Pagó ${formatCurrency(request.paymentAmount, request.paymentCurrency)} · ${request.paymentMethod === 'yape' ? 'Yape' : 'Transferencia'}</small>
         <small>Referencia: ${escapeHtml(request.paymentReference)} · ${new Date(request.requestedAt * 1000).toLocaleString('es-PE')}</small>
         <small>Estado: ${labels[request.status] || request.status}</small>
       </div>
@@ -1516,6 +1677,7 @@ async function completeAuthentication(result) {
   localStorage.setItem(AUTH_TOKEN_KEY, authToken);
   currentUser = result.user;
   try {
+    if (await showRequiredPaymentIfNeeded()) return;
     await loadAccountData();
     showApp();
     maybeStartOnboarding();
@@ -3380,6 +3542,7 @@ function renderTable() {
       editingTransactionId = id;
       transactionFormTitle.textContent = 'Editar movimiento';
       submitButton.textContent = 'Guardar cambios';
+      cancelEditButton.textContent = 'Cancelar edición';
       cancelEditButton.hidden = false;
       descriptionInput.value = item.description;
       categoryInput.value = item.category;
@@ -3613,7 +3776,8 @@ function resetFormState() {
   form.reset();
   transactionFormTitle.textContent = 'Agregar movimiento';
   submitButton.textContent = 'Guardar movimiento';
-  cancelEditButton.hidden = true;
+  cancelEditButton.textContent = 'Limpiar';
+  cancelEditButton.hidden = false;
   dateInput.value = getDateString(0);
   typeInput.value = 'expense';
   formBaseCurrency = appBaseCurrency;
