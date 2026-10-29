@@ -94,8 +94,9 @@
             </select>
             <label for="requiredPaymentMethod">Método de pago</label>
             <select id="requiredPaymentMethod">
-              <option value="yape">Yape (soles)</option>
-              <option value="transfer">Transferencia bancaria</option>
+              <option value="" disabled hidden>Selecciona un método</option>
+              <option value="yape" hidden>Yape</option>
+              <option value="transfer" hidden>Transferencia bancaria</option>
               <option value="mercado_pago" id="requiredMercadoPagoOption" hidden>Mercado Pago</option>
             </select>
             <div class="plan-payment-instructions" id="requiredPaymentInstructions"></div>
@@ -486,10 +487,11 @@
               <input id="selectedPlanPeriod" type="hidden" />
               <div id="planPaymentInstructions" class="plan-payment-instructions"></div>
               <div class="field-row">
-                <label for="planPaymentMethodInput">Cómo realizaste el pago</label>
+                <label for="planPaymentMethodInput">Método de pago</label>
                 <select id="planPaymentMethodInput" required>
-                  <option value="yape">Yape</option>
-                  <option value="transfer">Transferencia bancaria</option>
+                  <option value="" disabled hidden>Selecciona un método</option>
+                  <option value="yape" hidden>Yape</option>
+                  <option value="transfer" hidden>Transferencia bancaria</option>
                   <option value="mercado_pago" id="planMercadoPagoOption" hidden>Mercado Pago · solo soles</option>
                 </select>
               </div>
@@ -683,10 +685,18 @@
               </div>
               <p class="section-description" id="aiProviderStatus" aria-live="polite"></p>
               <h3>Planes y pagos manuales</h3>
-              <p class="section-description">Configura los datos que verán los usuarios al pagar por Yape o transferencia. Verifica los pagos manualmente antes de aprobarlos.</p>
+              <p class="section-description">Configura los métodos que verán los usuarios al pagar. Solo aparecerán Yape o transferencia cuando sus datos estén completos; puedes subir el QR de Yape para facilitar el pago. Verifica las operaciones manualmente.</p>
               <div class="field-row two-cols">
                 <div><label for="yapeNumberInput">Número de Yape</label><input id="yapeNumberInput" maxlength="40" /></div>
                 <div><label for="yapeNameInput">Titular de Yape</label><input id="yapeNameInput" maxlength="100" /></div>
+              </div>
+              <div class="field-row two-cols yape-qr-settings">
+                <div>
+                  <label for="yapeQrUpload">Código QR de Yape (PNG, JPG o WebP; máximo 2 MB)</label>
+                  <input id="yapeQrUpload" type="file" accept="image/png,image/jpeg,image/webp" />
+                  <button class="button button-quiet upload-button" type="button" data-upload-kind="yape-qr">Subir QR de Yape</button>
+                </div>
+                <img id="yapeQrPreview" class="yape-payment-qr" alt="Código QR de Yape configurado" hidden />
               </div>
               <div class="field-row"><label for="bankAccountsInput">Cuentas bancarias e instrucciones</label><textarea id="bankAccountsInput" maxlength="2000" rows="3" placeholder="Banco, titular, número de cuenta y CCI"></textarea></div>
               <h3>Pasarelas (credenciales cifradas)</h3>
@@ -815,8 +825,9 @@
           </select>
           <label for="aiPaymentMethod">Método de pago</label>
           <select id="aiPaymentMethod">
-            <option value="yape">Yape (soles)</option>
-            <option value="transfer">Transferencia bancaria</option>
+            <option value="" disabled hidden>Selecciona un método</option>
+            <option value="yape" hidden>Yape (soles)</option>
+            <option value="transfer" hidden>Transferencia bancaria</option>
           </select>
           <div class="plan-payment-instructions" id="aiPaymentInstructions"></div>
           <label for="aiPaymentReference">Número de operación o referencia</label>

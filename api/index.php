@@ -1348,6 +1348,11 @@ function saveAppSetting(string $key, string $value): void
     $statement->execute([$key, $value]);
 }
 
+function yapePaymentConfigured(): bool
+{
+    return appSetting('yape_number') !== '' || appSetting('yape_qr_url') !== '';
+}
+
 function settingsEncryptionKey(): string
 {
     $key = envValue('FINANZA_SETTINGS_ENCRYPTION_KEY');
@@ -1585,13 +1590,14 @@ function publicBranding(): array
         'contactEmail' => appSetting('contact_email'),
         'logoUrl' => appSetting('logo_url'),
         'faviconUrl' => appSetting('favicon_url'),
+        'yapeQrUrl' => appSetting('yape_qr_url'),
         'baseCurrency' => appSetting('base_currency', 'PEN')
     ];
 }
 
 function uploadBrandAsset(string $kind): array
 {
-    if (!in_array($kind, ['logo', 'favicon'], true)) {
+    if (!in_array($kind, ['logo', 'favicon', 'yape-qr'], true)) {
         throw new ApiError(422, 'El tipo de imagen no es válido.');
     }
     $file = $_FILES['file'] ?? null;
@@ -1613,11 +1619,15 @@ function uploadBrandAsset(string $kind): array
     if (!move_uploaded_file($file['tmp_name'], $directory . DIRECTORY_SEPARATOR . $filename)) {
         throw new RuntimeException('Could not store the uploaded image.');
     }
-    $setting = $kind === 'logo' ? 'logo_url' : 'favicon_url';
+    $setting = match ($kind) {
+        'logo' => 'logo_url',
+        'favicon' => 'favicon_url',
+        'yape-qr' => 'yape_qr_url'
+    };
     $url = 'uploads/' . $filename;
     $oldUrl = appSetting($setting);
     saveAppSetting($setting, $url);
-    if (preg_match('~^uploads/(logo|favicon)-[a-f0-9]{32}\.(png|jpg|webp)$~', $oldUrl)) {
+    if (preg_match('~^uploads/(logo|favicon|yape-qr)-[a-f0-9]{32}\.(png|jpg|webp)$~', $oldUrl)) {
         @unlink($directory . DIRECTORY_SEPARATOR . basename($oldUrl));
     }
     return publicBranding();
@@ -1652,6 +1662,7 @@ function handleRequest(string $action, string $method, array $data): array
         return ['plans' => $options, 'paymentInstructions' => [
             'yapeNumber' => appSetting('yape_number'),
             'yapeName' => appSetting('yape_name'),
+            'yapeQrUrl' => appSetting('yape_qr_url'),
             'bankAccounts' => appSetting('bank_accounts'),
             'mercadoPagoAvailable' => $mercadoPagoAvailable,
             'mercadoPagoPublicKey' => $mercadoPagoAvailable ? appSetting('mercado_pago_public_key') : '',
@@ -2193,7 +2204,7 @@ function handleRequest(string $action, string $method, array $data): array
         if ($paymentCurrency === 'USD' && $methodName === 'yape') {
             throw new ApiError(422, 'Los pagos en dólares deben realizarse por transferencia bancaria.');
         }
-        if ($methodName === 'yape' && appSetting('yape_number') === '' ||
+        if ($methodName === 'yape' && !yapePaymentConfigured() ||
             $methodName === 'transfer' && appSetting('bank_accounts') === '') {
             throw new ApiError(422, 'El administrador aún no configuró los datos de este método de pago.');
         }
@@ -2255,7 +2266,7 @@ function handleRequest(string $action, string $method, array $data): array
         if ($paymentCurrency === 'USD' && $paymentMethod === 'yape') {
             throw new ApiError(422, 'Los pagos en dólares deben realizarse por transferencia bancaria.');
         }
-        if (($paymentMethod === 'yape' && appSetting('yape_number') === '') ||
+        if (($paymentMethod === 'yape' && !yapePaymentConfigured()) ||
             ($paymentMethod === 'transfer' && appSetting('bank_accounts') === '')) {
             throw new ApiError(422, 'El administrador aún no configuró los datos de este método de pago.');
         }
@@ -2444,6 +2455,7 @@ function handleRequest(string $action, string $method, array $data): array
                 'groqApiKeySet' => $storedGroqKey !== '' || envValue('FINANZA_GROQ_API_KEY') !== '',
                 'yapeNumber' => appSetting('yape_number'),
                 'yapeName' => appSetting('yape_name'),
+                'yapeQrUrl' => appSetting('yape_qr_url'),
                 'bankAccounts' => appSetting('bank_accounts'),
                 'culqiPublicKey' => appSetting('culqi_public_key'),
                 'culqiSecretSet' => appSetting('culqi_secret_encrypted') !== '',

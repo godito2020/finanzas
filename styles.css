@@ -602,6 +602,9 @@ input[type="date"] { color: #46534a; }
 .plan-trial { margin: 0 0 10px; color: var(--green-dark); font-size: .68rem; font-weight: 700; }
 .plan-payment-instructions { margin: 8px 0 14px; padding: 12px; border-radius: 10px; background: #f2f6ef; color: #536056; font-size: .76rem; line-height: 1.55; overflow-wrap: anywhere; }
 .plan-payment-instructions p { margin: 0; }
+.yape-payment-qr { display: block; width: min(100%, 240px); max-height: 260px; margin: 12px auto 0; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; object-fit: contain; }
+.yape-qr-settings { align-items: start; }
+.yape-qr-settings .button { margin-top: 8px; }
 .plan-request-record > div { display: grid; gap: 5px; }
 .plan-request-record small { color: var(--muted); font-size: .7rem; overflow-wrap: anywhere; }
 .payment-calendar-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0 14px; }

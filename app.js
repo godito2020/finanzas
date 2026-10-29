@@ -852,23 +852,29 @@ function renderRequiredPayment() {
   if (!mercadoPagoAvailable && requiredPaymentMethod.value === 'mercado_pago') {
     requiredPaymentMethod.value = 'transfer';
   }
+  const hasPaymentMethod = configurePaymentOptions(
+    requiredPaymentMethod,
+    currency,
+    mercadoPagoAvailable && currency === 'PEN'
+  );
   const useMercadoPago = requiredPaymentMethod.value === 'mercado_pago';
   const paymentAmount = currency === 'USD' ? Math.round((amount / 3.6) * 100) / 100 : amount;
   requiredPaymentAmount.textContent = formatCurrency(paymentAmount, currency);
   requiredPaymentEquivalent.textContent = currency === 'USD'
     ? `${formatCurrency(amount, 'PEN')} · tipo de cambio fijo S/ 3.60 por USD`
     : `${formatCurrency(Math.round((amount / 3.6) * 100) / 100, 'USD')} · tipo de cambio fijo S/ 3.60 por USD`;
-  requiredPaymentSubmit.disabled = !plan || (useMercadoPago && !mercadoPagoAvailable) || (hasPendingPlanRequest &&
+  requiredPaymentSubmit.disabled = !plan || !hasPaymentMethod || (useMercadoPago && !mercadoPagoAvailable) || (hasPendingPlanRequest &&
     !(useMercadoPago && pendingPlanGateway === 'mercado_pago'));
   requiredPaymentSubmit.textContent = useMercadoPago
     ? 'Preparar pago con Mercado Pago'
     : hasPendingPlanRequest
       ? 'Pago enviado · En revisión'
-      : plan ? 'Enviar pago único para validación' : 'Plan no disponible';
-  requiredPaymentReference.disabled = hasPendingPlanRequest || !plan || useMercadoPago;
-  requiredPaymentReference.required = !useMercadoPago;
-  requiredPaymentReference.hidden = useMercadoPago;
-  requiredPaymentReferenceLabel.hidden = useMercadoPago;
+      : !hasPaymentMethod ? 'Métodos de pago no configurados'
+        : plan ? 'Enviar pago único para validación' : 'Plan no disponible';
+  requiredPaymentReference.disabled = hasPendingPlanRequest || !plan || useMercadoPago || !hasPaymentMethod;
+  requiredPaymentReference.required = !useMercadoPago && hasPaymentMethod;
+  requiredPaymentReference.hidden = useMercadoPago || !hasPaymentMethod;
+  requiredPaymentReferenceLabel.hidden = useMercadoPago || !hasPaymentMethod;
   requiredPaymentInstructions.hidden = useMercadoPago;
   requiredPaymentStatus.hidden = !hasPendingPlanRequest;
   requiredPaymentStatus.textContent = hasPendingPlanRequest
@@ -881,27 +887,47 @@ function renderRequiredPayment() {
   if (!useMercadoPago) {
     mercadoPagoCheckoutLink.removeAttribute('href');
   }
-  const yapeOption = requiredPaymentMethod.querySelector('option[value="yape"]');
-  yapeOption.disabled = requiredPaymentCurrency.value === 'USD';
-  if (currency === 'USD' && requiredPaymentMethod.value === 'yape') {
-    requiredPaymentMethod.value = 'transfer';
-  }
   renderRequiredPaymentInstructions();
 }
 
 function renderRequiredPaymentInstructions() {
-  if (requiredPaymentMethod.value === 'yape') {
+  requiredPaymentInstructions.innerHTML = paymentMethodInstructionsMarkup(requiredPaymentMethod.value);
+}
+
+function configurePaymentOptions(select, currency, allowMercadoPago = false) {
+  const available = {
+    yape: currency === 'PEN' && Boolean(paymentInstructions.yapeNumber || paymentInstructions.yapeQrUrl),
+    transfer: Boolean(paymentInstructions.bankAccounts),
+    mercado_pago: allowMercadoPago && Boolean(paymentInstructions.mercadoPagoAvailable)
+  };
+  const options = [...select.options].filter((option) => option.value);
+  options.forEach((option) => {
+    const enabled = Boolean(available[option.value]);
+    option.hidden = !enabled;
+    option.disabled = !enabled;
+  });
+  const values = options.filter((option) => available[option.value]).map((option) => option.value);
+  if (!values.includes(select.value)) select.value = values[0] || '';
+  select.disabled = values.length === 0;
+  return values.length > 0;
+}
+
+function paymentMethodInstructionsMarkup(method) {
+  if (method === 'yape') {
     const number = paymentInstructions.yapeNumber;
     const owner = paymentInstructions.yapeName;
-    requiredPaymentInstructions.innerHTML = number
-      ? `<p>Yapea al <strong>${escapeHtml(number)}</strong>${owner ? ` · Titular: ${escapeHtml(owner)}` : ''}. Luego ingresa el número de operación.</p>`
-      : '<p>El administrador aún no configuró un número de Yape. Elige transferencia o inténtalo más tarde.</p>';
-  } else {
-    const accounts = paymentInstructions.bankAccounts;
-    requiredPaymentInstructions.innerHTML = accounts
-      ? `<p>${escapeHtml(accounts).replace(/\n/g, '<br>')}</p>`
-      : '<p>El administrador aún no configuró cuentas bancarias. Elige Yape o inténtalo más tarde.</p>';
+    const qrUrl = paymentInstructions.yapeQrUrl;
+    const details = number
+      ? `Yapea al <strong>${escapeHtml(number)}</strong>${owner ? ` · Titular: ${escapeHtml(owner)}` : ''}.`
+      : 'Escanea el código QR de Yape para realizar el pago.';
+    return `<p>${details} Luego ingresa el número de operación.</p>${qrUrl
+      ? `<img class="yape-payment-qr" src="${escapeHtml(qrUrl)}" alt="Código QR de Yape" loading="lazy" />`
+      : ''}`;
   }
+  if (method === 'transfer' && paymentInstructions.bankAccounts) {
+    return `<p>${escapeHtml(paymentInstructions.bankAccounts).replace(/\n/g, '<br>')}</p>`;
+  }
+  return '<p>El administrador aún no ha configurado métodos de pago disponibles. Inténtalo más tarde.</p>';
 }
 
 async function handleRequiredPaymentSubmit(event) {
@@ -1391,6 +1417,14 @@ function fillAdminSettings(settings) {
   document.getElementById('mailFromNameInput').value = settings.mailFromName || '';
   document.getElementById('yapeNumberInput').value = settings.yapeNumber || '';
   document.getElementById('yapeNameInput').value = settings.yapeName || '';
+  const yapeQrPreview = document.getElementById('yapeQrPreview');
+  if (settings.yapeQrUrl) {
+    yapeQrPreview.src = settings.yapeQrUrl;
+    yapeQrPreview.hidden = false;
+  } else {
+    yapeQrPreview.removeAttribute('src');
+    yapeQrPreview.hidden = true;
+  }
   document.getElementById('bankAccountsInput').value = settings.bankAccounts || '';
   document.getElementById('culqiPublicKeyInput').value = settings.culqiPublicKey || '';
   document.getElementById('culqiSecretInput').value = '';
@@ -1581,7 +1615,8 @@ async function handleAdminSettingsSubmit(event) {
 }
 
 async function handleBrandUpload(kind, button) {
-  const input = document.getElementById(kind === 'logo' ? 'logoUpload' : 'faviconUpload');
+  const inputId = { logo: 'logoUpload', favicon: 'faviconUpload', 'yape-qr': 'yapeQrUpload' }[kind];
+  const input = document.getElementById(inputId);
   const file = input.files?.[0];
   if (!file) {
     showAppNotice('Selecciona una imagen primero.', true);
@@ -1604,8 +1639,18 @@ async function handleBrandUpload(kind, button) {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || 'No se pudo guardar la imagen.');
     applyBranding(result.settings);
+    if (kind === 'yape-qr') {
+      paymentInstructions.yapeQrUrl = result.settings.yapeQrUrl;
+      const preview = document.getElementById('yapeQrPreview');
+      preview.src = result.settings.yapeQrUrl;
+      preview.hidden = false;
+      renderRequiredPayment();
+      renderPlanPaymentInstructions();
+      renderAiPaymentOffer();
+    }
     input.value = '';
-    showAppNotice(kind === 'logo' ? 'Logotipo actualizado.' : 'Favicon actualizado.');
+    showAppNotice(kind === 'logo' ? 'Logotipo actualizado.'
+      : kind === 'favicon' ? 'Favicon actualizado.' : 'Código QR de Yape actualizado.');
   } catch (error) {
     showAppNotice(error.message, true);
   } finally {
@@ -2345,23 +2390,11 @@ function renderAiPaymentOffer() {
   const currency = aiPaymentCurrency.value;
   const amount = currency === 'USD' ? 2.78 : 10;
   aiPaymentAmount.textContent = formatCurrency(amount, currency);
-  const yapeOption = aiPaymentMethod.querySelector('option[value="yape"]');
-  yapeOption.disabled = currency === 'USD';
-  if (currency === 'USD' && aiPaymentMethod.value === 'yape') {
-    aiPaymentMethod.value = 'transfer';
-  }
-  if (aiPaymentMethod.value === 'yape') {
-    const number = paymentInstructions.yapeNumber;
-    const owner = paymentInstructions.yapeName;
-    aiPaymentInstructions.innerHTML = number
-      ? `<p>Yapea al <strong>${escapeHtml(number)}</strong>${owner ? ` · Titular: ${escapeHtml(owner)}` : ''}. Luego ingresa el número de operación.</p>`
-      : '<p>El administrador aún no configuró un número de Yape.</p>';
-  } else {
-    const accounts = paymentInstructions.bankAccounts;
-    aiPaymentInstructions.innerHTML = accounts
-      ? `<p>${escapeHtml(accounts).replace(/\n/g, '<br>')}</p>`
-      : '<p>El administrador aún no configuró cuentas bancarias.</p>';
-  }
+  const hasPaymentMethod = configurePaymentOptions(aiPaymentMethod, currency);
+  requestAiAccessButton.disabled = !hasPaymentMethod;
+  aiPaymentReference.required = hasPaymentMethod;
+  aiPaymentReference.hidden = !hasPaymentMethod;
+  aiPaymentInstructions.innerHTML = paymentMethodInstructionsMarkup(aiPaymentMethod.value);
 }
 
 function maybeStartOnboarding(force = false) {
@@ -3088,30 +3121,24 @@ function renderPlanPaymentInstructions() {
   if ((!isLifetimePlan || !mercadoPagoAvailable) && planPaymentMethodInput.value === 'mercado_pago') {
     planPaymentMethodInput.value = 'transfer';
   }
+  const hasPaymentMethod = configurePaymentOptions(
+    planPaymentMethodInput,
+    'PEN',
+    isLifetimePlan && mercadoPagoAvailable
+  );
   const useMercadoPago = planPaymentMethodInput.value === 'mercado_pago';
   planPaymentInstructions.hidden = useMercadoPago;
-  planPaymentReferenceField.hidden = useMercadoPago;
-  planPaymentReferenceInput.required = !useMercadoPago;
+  planPaymentReferenceField.hidden = useMercadoPago || !hasPaymentMethod;
+  planPaymentReferenceInput.required = !useMercadoPago && hasPaymentMethod;
   planMercadoPagoWalletContainer.hidden = !useMercadoPago || !planMercadoPagoWalletContainer.childElementCount;
   planMercadoPagoCheckoutLink.hidden = !useMercadoPago || !planMercadoPagoCheckoutLink.getAttribute('href');
   if (!useMercadoPago) planMercadoPagoCheckoutLink.removeAttribute('href');
   const submitButton = planPaymentForm.querySelector('button[type="submit"]');
   submitButton.textContent = useMercadoPago ? 'Preparar pago con Mercado Pago' : 'Enviar solicitud';
-  submitButton.disabled = hasPendingPlanRequest &&
-    !(useMercadoPago && pendingPlanGateway === 'mercado_pago');
+  submitButton.disabled = !hasPaymentMethod || (hasPendingPlanRequest &&
+    !(useMercadoPago && pendingPlanGateway === 'mercado_pago'));
   if (useMercadoPago) return;
-  if (planPaymentMethodInput.value === 'yape') {
-    const number = paymentInstructions.yapeNumber;
-    const owner = paymentInstructions.yapeName;
-    planPaymentInstructions.innerHTML = number
-      ? `<p>Yapea al <strong>${escapeHtml(number)}</strong>${owner ? ` · Titular: ${escapeHtml(owner)}` : ''}. Luego ingresa el número de operación.</p>`
-      : '<p>El administrador aún no configuró un número de Yape. Elige transferencia o inténtalo más tarde.</p>';
-  } else {
-    const accounts = paymentInstructions.bankAccounts;
-    planPaymentInstructions.innerHTML = accounts
-      ? `<p>${escapeHtml(accounts).replace(/\n/g, '<br>')}</p>`
-      : '<p>El administrador aún no configuró cuentas bancarias. Elige Yape o inténtalo más tarde.</p>';
-  }
+  planPaymentInstructions.innerHTML = paymentMethodInstructionsMarkup(planPaymentMethodInput.value);
 }
 
 async function handlePlanPaymentSubmit(event) {
