@@ -1440,8 +1440,17 @@ function fillAdminSettings(settings) {
   document.getElementById('paypalClientIdInput').value = settings.paypalClientId || '';
   document.getElementById('paypalSecretInput').value = '';
   document.getElementById('paypalSecretInput').placeholder = settings.paypalSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
+  const missingMercadoPagoSettings = [
+    !settings.mercadoPagoPublicKey && 'Public Key',
+    !settings.mercadoPagoSecretSet && 'Access Token',
+    !settings.mercadoPagoWebhookSecretSet && 'secreto de firma de Webhooks',
+    !settings.mercadoPagoAppUrlSet && 'FINANZA_APP_URL HTTPS en el servidor'
+  ].filter(Boolean);
+  const mercadoPagoStatus = missingMercadoPagoSettings.length
+    ? `Mercado Pago no aparecerá en suscripciones: falta configurar ${missingMercadoPagoSettings.join(', ')}.`
+    : 'Mercado Pago está listo para Checkout Pro.';
   document.getElementById('gatewayStatus').textContent =
-    `Culqi ${settings.culqiSecretSet ? 'configurado' : 'sin configurar'} · Mercado Pago ${settings.mercadoPagoSecretSet && settings.mercadoPagoWebhookSecretSet && settings.mercadoPagoAppUrlSet ? 'listo para Checkout Pro' : 'incompleto'} · PayPal ${settings.paypalSecretSet ? 'configurado' : 'sin configurar'}.`;
+    `Culqi ${settings.culqiSecretSet ? 'configurado' : 'sin configurar'} · ${mercadoPagoStatus} · PayPal ${settings.paypalSecretSet ? 'configurado' : 'sin configurar'}.`;
 }
 
 function renderAdminUsers(users) {

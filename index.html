@@ -712,7 +712,7 @@
               </div>
               <details class="payment-settings-card mercado-pago-settings" open>
                 <summary>Mercado Pago · Checkout Pro</summary>
-                <p class="section-description">Usa las credenciales de producción o de prueba que aparecen en tu portal. La clave pública se usa en el checkout; el Access Token y la clave de firma se guardan cifrados en el servidor.</p>
+                <p class="section-description">Completa Public Key y Access Token del mismo entorno (Prueba o Producción). También se requiere el secreto de firma de Webhooks, que se obtiene al configurar Webhooks, y FINANZA_APP_URL HTTPS en el servidor. Sin esos cuatro datos Mercado Pago no aparecerá como opción de pago. El Access Token y el secreto de Webhooks se guardan cifrados.</p>
                 <div class="field-row two-cols">
                   <div><label for="mercadoPagoPublicKeyInput">Public Key (clave pública)</label><input id="mercadoPagoPublicKeyInput" maxlength="500" autocomplete="off" placeholder="APP_USR-… o TEST-…" /></div>
                   <div><label for="mercadoPagoSecretInput">Access Token (token de acceso)</label><input id="mercadoPagoSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="Configurado o pega aquí el token" /></div>
