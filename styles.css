@@ -780,6 +780,19 @@ td .goal-actions { flex-wrap: nowrap; }
 .admin-settings-form .upload-button { align-self: end; }
 .admin-settings-form .field-row { margin-bottom: 10px; }
 .admin-settings-form .section-description { margin: 0 0 10px; }
+.payment-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.payment-settings-card { min-width: 0; margin: 0 0 12px; padding: 15px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-tint); }
+.payment-settings-card h4 { margin: 0 0 8px; color: var(--ink); font-size: .84rem; }
+.payment-settings-card .section-description { color: var(--muted); font-size: .72rem; line-height: 1.5; }
+.payment-settings-card > .field-row:last-child { margin-bottom: 0; }
+.payment-settings-card > summary { color: var(--ink); font-size: .82rem; font-weight: 700; cursor: pointer; }
+.payment-settings-card[open] > summary { margin-bottom: 12px; }
+.mercado-pago-settings { border-color: #c9d6f4; background: #f7f9ff; }
+.yape-qr-settings { display: grid; justify-items: start; gap: 8px; }
+.yape-qr-settings label { margin: 0; }
+.yape-qr-settings .upload-button { align-self: auto; }
+.yape-qr-settings .yape-payment-qr { margin: 0; }
+.mercado-pago-settings input[readonly] { background: #f2f4f8; color: var(--muted); font-size: .74rem; }
 .mobile-nav { display: none; }
 
 .app-page { scroll-margin-top: 20px; }
@@ -1004,6 +1017,7 @@ td .goal-actions { flex-wrap: nowrap; }
   .assignment-actions { grid-column: 1; }
   .admin-settings-form .two-cols { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .admin-settings-form .upload-button { width: 100%; }
+  .payment-settings-grid { grid-template-columns: minmax(0, 1fr); }
   .suggestion-dialog { padding: 21px 18px; border-radius: 16px; }
   .suggestion-dialog-actions { flex-direction: column-reverse; }
   .suggestion-dialog-actions .button { width: 100%; min-height: 46px; }

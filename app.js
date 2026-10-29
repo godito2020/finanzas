@@ -1434,6 +1434,9 @@ function fillAdminSettings(settings) {
   document.getElementById('mercadoPagoSecretInput').placeholder = settings.mercadoPagoSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
   mercadoPagoWebhookSecretInput.value = '';
   mercadoPagoWebhookSecretInput.placeholder = settings.mercadoPagoWebhookSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
+  const mercadoPagoWebhookUrl = new URL(apiBaseUrl, document.baseURI);
+  mercadoPagoWebhookUrl.searchParams.set('action', 'mercado-pago-webhook');
+  document.getElementById('mercadoPagoWebhookUrl').value = mercadoPagoWebhookUrl.href;
   document.getElementById('paypalClientIdInput').value = settings.paypalClientId || '';
   document.getElementById('paypalSecretInput').value = '';
   document.getElementById('paypalSecretInput').placeholder = settings.paypalSecretSet ? 'Configurada; vacía para conservar' : 'Sin configurar';
