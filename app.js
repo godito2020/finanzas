@@ -2074,19 +2074,22 @@ async function exportReportPDF(reportTransactions, period, filters) {
   const pageHeight = doc.internal.pageSize.getHeight();
   const left = 16;
   const right = pageWidth - left;
-  const totals = reportTransactions.reduce(
-    (summary, transaction) => {
-      summary[transaction.type] += transaction.amountInBaseCurrency;
-      return summary;
-    },
-    { income: 0, expense: 0 }
-  );
-  const categoryTotals = reportTransactions
-    .filter((transaction) => transaction.type === 'expense')
-    .reduce((result, transaction) => {
-      result[transaction.category] = (result[transaction.category] || 0) + transaction.amountInBaseCurrency;
-      return result;
-    }, {});
+  const totals = {
+    income: sumTransactionsByCurrency(reportTransactions, 'income'),
+    expense: sumTransactionsByCurrency(reportTransactions, 'expense'),
+    balance: sumTransactionsByCurrency(reportTransactions)
+  };
+  const categoryTotals = new Map();
+  reportTransactions
+    .filter((transaction) => reportTypeInput.value === 'all' || transaction.type === reportTypeInput.value)
+    .forEach((transaction) => {
+      const currency = transaction.baseCurrency || 'PEN';
+      const category = transaction.category || 'Otros';
+      const key = `${transaction.type}\u0000${category}\u0000${currency}`;
+      const entry = categoryTotals.get(key) || { type: transaction.type, category, currency, amount: 0 };
+      entry.amount += transaction.amountInBaseCurrency;
+      categoryTotals.set(key, entry);
+    });
 
   doc.setFillColor(15, 23, 42);
   doc.rect(0, 0, pageWidth, 54, 'F');
@@ -2111,40 +2114,43 @@ async function exportReportPDF(reportTransactions, period, filters) {
   const summaryCards = [
     ['Ingresos', totals.income, [22, 163, 74]],
     ['Gastos', totals.expense, [239, 68, 68]],
-    ['Balance', totals.income - totals.expense, [59, 130, 246]]
+    ['Balance', totals.balance, [59, 130, 246]]
   ];
   const cardGap = 4;
   const cardWidth = (right - left - cardGap * 2) / 3;
+  const summaryLineCount = Math.max(1, ...summaryCards.map(([, value]) => value.size));
+  const cardHeight = 14 + summaryLineCount * 4;
 
   summaryCards.forEach(([label, value, color], index) => {
     const x = left + index * (cardWidth + cardGap);
     doc.setFillColor(245, 247, 251);
-    doc.roundedRect(x, y, cardWidth, 23, 3, 3, 'F');
+    doc.roundedRect(x, y, cardWidth, cardHeight, 3, 3, 'F');
     doc.setTextColor(107, 114, 128);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.text(label, x + 4, y + 7);
     doc.setTextColor(color[0], color[1], color[2]);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(formatReportAmount(value), x + 4, y + 17);
+    doc.setFontSize(summaryLineCount > 1 ? 8 : 12);
+    const formattedValue = formatCurrencyTotals(value);
+    doc.text(formattedValue.split('\n'), x + 4, y + 13, { lineHeightFactor: 1.1 });
   });
 
-  y += 35;
-  const categories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
+  y += cardHeight + 12;
+  const categories = [...categoryTotals.values()].sort((a, b) => b.amount - a.amount);
   if (categories.length) {
     doc.setTextColor(31, 41, 55);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text(`${reportTypeInput.value === 'income' ? 'INGRESOS' : 'GASTOS'} POR CATEGORÍA`, left, y);
+    doc.text(`${reportTypeInput.value === 'all' ? 'INGRESOS Y GASTOS' : reportTypeInput.value === 'income' ? 'INGRESOS' : 'GASTOS'} POR CATEGORÍA`, left, y);
     y += 7;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    categories.slice(0, 8).forEach(([category, value]) => {
+    categories.slice(0, 8).forEach(({ type, category, currency, amount }) => {
       doc.setTextColor(75, 85, 99);
-      doc.text(category, left, y);
+      doc.text(`${type === 'income' ? 'Ingreso' : 'Gasto'} · ${category} · ${currency}`, left, y);
       doc.setTextColor(31, 41, 55);
-      doc.text(formatReportAmount(value), right, y, { align: 'right' });
+      doc.text(formatReportAmount(amount, currency), right, y, { align: 'right' });
       y += 6;
     });
     y += 5;
@@ -2192,7 +2198,7 @@ async function exportReportPDF(reportTransactions, period, filters) {
     doc.text(descriptionLines, columns.description, y);
     doc.text(doc.splitTextToSize(transaction.category, 30), columns.category, y);
     doc.setTextColor(transaction.type === 'income' ? 22 : 220, transaction.type === 'income' ? 163 : 38, transaction.type === 'income' ? 74 : 38);
-    doc.text(`${transaction.type === 'income' ? '+' : '-'}${formatReportAmount(transaction.amount, transaction.currency)}`, columns.amount - 2, y, { align: 'right' });
+    doc.text(`${transaction.type === 'income' ? '+' : '-'}${formatReportAmount(transaction.amountInBaseCurrency, transaction.baseCurrency || 'PEN')}`, columns.amount - 2, y, { align: 'right' });
     y += rowHeight;
   });
 
@@ -3447,11 +3453,19 @@ function render() {
   const range = getDashboardDateRange();
   dashboardPeriodLabel.textContent = range.label;
   const summary = summarizeTransactions(range);
-  balanceValue.textContent = formatCurrency(summary.balance);
-  incomeValue.textContent = formatCurrency(summary.income);
-  expenseValue.textContent = formatCurrency(summary.expense);
-  document.getElementById('incomePeriodCaption').textContent = 'Entradas registradas';
-  document.getElementById('expensePeriodCaption').textContent = 'Salidas registradas';
+  balanceValue.textContent = formatCurrencyTotals(summary.balance);
+  incomeValue.textContent = formatCurrencyTotals(summary.income);
+  expenseValue.textContent = formatCurrencyTotals(summary.expense);
+  const multipleCurrencies = summary.currencies.size > 1;
+  [balanceValue, incomeValue, expenseValue].forEach((value) => {
+    value.classList.toggle('currency-breakdown', multipleCurrencies);
+  });
+  document.getElementById('incomePeriodCaption').textContent = multipleCurrencies
+    ? 'Entradas · desglosadas por moneda'
+    : 'Entradas registradas';
+  document.getElementById('expensePeriodCaption').textContent = multipleCurrencies
+    ? 'Salidas · desglosadas por moneda'
+    : 'Salidas registradas';
   document.getElementById('pendingPaymentsValue').textContent = String(
     paymentSchedules.filter((payment) => payment.dueDate <= getDateString(7)).length
   );
@@ -3522,7 +3536,6 @@ function getReportData() {
       const description = String(transaction.description || '').toLocaleLowerCase();
       const transactionCategory = String(transaction.category || 'Otros');
       return transaction.date >= range.start && transaction.date <= range.end &&
-        (transaction.baseCurrency || 'PEN') === appBaseCurrency &&
         (type === 'all' || transaction.type === type) &&
         (category === 'all' || transactionCategory === category) &&
         (!search || description.includes(search) || transactionCategory.toLocaleLowerCase().includes(search));
@@ -3550,16 +3563,19 @@ function renderReports() {
   reportCategoryInput.value = categoryOptions.includes(selectedCategory) ? selectedCategory : 'all';
 
   const { range, transactions: matching } = getReportData();
-  const totals = matching.reduce((result, transaction) => {
-    result[transaction.type] += transaction.amountInBaseCurrency;
-    return result;
-  }, { income: 0, expense: 0 });
-  document.getElementById('reportIncomeValue').textContent = formatCurrency(totals.income);
-  document.getElementById('reportExpenseValue').textContent = formatCurrency(totals.expense);
-  document.getElementById('reportBalanceValue').textContent = formatCurrency(totals.income - totals.expense);
+  const incomeTotals = sumTransactionsByCurrency(matching, 'income');
+  const expenseTotals = sumTransactionsByCurrency(matching, 'expense');
+  const balanceTotals = sumTransactionsByCurrency(matching);
+  const multipleCurrencies = new Set(matching.map((transaction) => transaction.baseCurrency || 'PEN')).size > 1;
+  document.getElementById('reportIncomeValue').textContent = formatCurrencyTotals(incomeTotals);
+  document.getElementById('reportExpenseValue').textContent = formatCurrencyTotals(expenseTotals);
+  document.getElementById('reportBalanceValue').textContent = formatCurrencyTotals(balanceTotals);
+  ['reportIncomeValue', 'reportExpenseValue', 'reportBalanceValue'].forEach((id) => {
+    document.getElementById(id).classList.toggle('currency-breakdown', multipleCurrencies);
+  });
   document.getElementById('reportCountValue').textContent = String(matching.length);
   document.getElementById('reportResultCaption').textContent =
-    `${range.label} · ${matching.length} movimiento${matching.length === 1 ? '' : 's'} en ${appBaseCurrency}`;
+    `${range.label} · ${matching.length} movimiento${matching.length === 1 ? '' : 's'} · ${multipleCurrencies ? 'totales separados por moneda' : matching.length ? `moneda: ${matching[0].baseCurrency || 'PEN'}` : 'sin movimientos'}`;
 
   const byMonth = reportGroupInput.value === 'month';
   const selectedType = reportTypeInput.value;
@@ -3579,7 +3595,7 @@ function renderReports() {
       <td data-label="Categoría">${escapeHtml(transaction.category || 'Otros')}</td>
       <td data-label="Tipo">${transaction.type === 'income' ? 'Ingreso' : 'Gasto'}</td>
       <td data-label="Monto" class="${transaction.type === 'income' ? 'amount-income' : 'amount-expense'}">
-        ${transaction.type === 'income' ? '+' : '−'}${formatCurrency(transaction.amountInBaseCurrency)}
+        ${transaction.type === 'income' ? '+' : '−'}${formatCurrency(transaction.amountInBaseCurrency, transaction.baseCurrency || 'PEN')}
       </td>
     </tr>
   `).join('');
@@ -3590,8 +3606,10 @@ function renderReportBreakdown(matching, { byMonth, selectedType }) {
     const months = new Map();
     matching.forEach((transaction) => {
       const key = transaction.date.slice(0, 7);
-      const totals = months.get(key) || { income: 0, expense: 0 };
-      totals[transaction.type] += transaction.amountInBaseCurrency;
+      const totals = months.get(key) || { income: new Map(), expense: new Map() };
+      const currency = transaction.baseCurrency || 'PEN';
+      totals[transaction.type].set(currency,
+        (totals[transaction.type].get(currency) || 0) + transaction.amountInBaseCurrency);
       months.set(key, totals);
     });
     const entries = [...months.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -3602,8 +3620,8 @@ function renderReportBreakdown(matching, { byMonth, selectedType }) {
     reportBreakdown.innerHTML = entries.map(([month, totals]) => `
       <article class="report-month-row">
         <strong>${escapeHtml(formatMonthLabel(month))}</strong>
-        <span class="amount-income">Ingresos ${formatCurrency(totals.income)}</span>
-        <span class="amount-expense">Gastos ${formatCurrency(totals.expense)}</span>
+        <span class="amount-income">Ingresos ${escapeHtml(formatCurrencyTotals(totals.income))}</span>
+        <span class="amount-expense">Gastos ${escapeHtml(formatCurrencyTotals(totals.expense))}</span>
       </article>
     `).join('');
     return;
@@ -3613,18 +3631,25 @@ function renderReportBreakdown(matching, { byMonth, selectedType }) {
   const amounts = new Map();
   matching.filter((transaction) => transaction.type === type).forEach((transaction) => {
     const category = transaction.category || 'Otros';
-    amounts.set(category, (amounts.get(category) || 0) + transaction.amountInBaseCurrency);
+    const currency = transaction.baseCurrency || 'PEN';
+    const key = `${category}\u0000${currency}`;
+    const entry = amounts.get(key) || { category, currency, amount: 0 };
+    entry.amount += transaction.amountInBaseCurrency;
+    amounts.set(key, entry);
   });
-  const entries = [...amounts.entries()].sort((a, b) => b[1] - a[1]);
+  const entries = [...amounts.values()].sort((a, b) => b.amount - a.amount);
   if (!entries.length) {
     reportBreakdown.innerHTML = '<p class="empty-state">No hay datos para mostrar con estos filtros.</p>';
     return;
   }
-  const maxAmount = entries[0][1] || 1;
-  reportBreakdown.innerHTML = entries.map(([category, amount]) => `
+  const maximumByCurrency = new Map();
+  entries.forEach(({ currency, amount }) => {
+    maximumByCurrency.set(currency, Math.max(maximumByCurrency.get(currency) || 0, amount));
+  });
+  reportBreakdown.innerHTML = entries.map(({ category, currency, amount }) => `
     <div class="report-category-row">
-      <div class="report-category-label"><span>${escapeHtml(category)}</span><strong>${formatCurrency(amount)}</strong></div>
-      <div class="report-category-track"><span class="${type === 'income' ? 'income' : 'expense'}" style="width:${Math.max((amount / maxAmount) * 100, 2)}%"></span></div>
+      <div class="report-category-label"><span>${escapeHtml(category)} · ${escapeHtml(currency)}</span><strong>${formatCurrency(amount, currency)}</strong></div>
+      <div class="report-category-track"><span class="${type === 'income' ? 'income' : 'expense'}" style="width:${Math.max((amount / maximumByCurrency.get(currency)) * 100, 2)}%"></span></div>
     </div>
   `).join('');
 }
@@ -3637,27 +3662,55 @@ function updateCurrencyHistoryNotice() {
     .filter((currency) => currency !== appBaseCurrency))];
   currencyHistoryNotice.hidden = historicalCurrencies.length === 0;
   currencyHistoryNotice.textContent = historicalCurrencies.length
-    ? `La moneda principal es ${appBaseCurrency}. Los registros históricos en ${historicalCurrencies.join(', ')} conservan su valor y no se mezclan en los resúmenes actuales.`
+    ? `Hay datos guardados en ${historicalCurrencies.join(', ')} además de ${appBaseCurrency}. Los resúmenes separan los totales por moneda; los gráficos muestran únicamente ${appBaseCurrency}.`
     : '';
   currencyHistoryNotice.hidden = !currencyHistoryNotice.textContent.trim();
 }
 
 function summarizeTransactions(range) {
-  let income = 0;
-  let expense = 0;
+  const income = new Map();
+  const expense = new Map();
+  const balance = new Map();
+  const currencies = new Set();
   for (const transaction of transactions) {
-    if (transaction.date < range.start || transaction.date > range.end ||
-        (transaction.baseCurrency || 'PEN') !== appBaseCurrency) {
+    if (transaction.date < range.start || transaction.date > range.end) {
       continue;
     }
+    const currency = transaction.baseCurrency || 'PEN';
+    currencies.add(currency);
+    const amount = transaction.amountInBaseCurrency;
     if (transaction.type === 'income') {
-      income += transaction.amountInBaseCurrency;
+      income.set(currency, (income.get(currency) || 0) + amount);
+      balance.set(currency, (balance.get(currency) || 0) + amount);
     } else {
-      expense += transaction.amountInBaseCurrency;
+      expense.set(currency, (expense.get(currency) || 0) + amount);
+      balance.set(currency, (balance.get(currency) || 0) - amount);
     }
   }
 
-  return { income, expense, balance: income - expense };
+  return { income, expense, balance, currencies };
+}
+
+function sumTransactionsByCurrency(items, type = null) {
+  const totals = new Map();
+  items.forEach((transaction) => {
+    if (type && transaction.type !== type) return;
+    const currency = transaction.baseCurrency || 'PEN';
+    const amount = type === null && transaction.type === 'expense'
+      ? -transaction.amountInBaseCurrency
+      : transaction.amountInBaseCurrency;
+    totals.set(currency, (totals.get(currency) || 0) + amount);
+  });
+  return totals;
+}
+
+function formatCurrencyTotals(totals) {
+  const entries = totals instanceof Map ? [...totals.entries()] : [];
+  if (!entries.length) return formatCurrency(0);
+  return entries
+    .sort(([currencyA], [currencyB]) => currencyA.localeCompare(currencyB))
+    .map(([currency, amount]) => formatCurrency(amount, currency))
+    .join('\n');
 }
 
 function buildBudgetData() {

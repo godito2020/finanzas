@@ -603,7 +603,7 @@
           <section class="panel reports-filters" aria-label="Filtros de reportes">
             <div class="panel-header"><div><p class="eyebrow">PERSONALIZA TU REPORTE</p><h3>Filtros</h3></div></div>
             <div class="report-filter-grid">
-              <div><label for="reportPeriodInput">Período</label><select id="reportPeriodInput"><option value="month">Este mes</option><option value="week">Esta semana</option><option value="year">Este año</option><option value="all">Todo el período</option><option value="custom">Rango personalizado</option></select></div>
+              <div><label for="reportPeriodInput">Período</label><select id="reportPeriodInput"><option value="all">Todo el período</option><option value="month">Este mes</option><option value="week">Esta semana</option><option value="year">Este año</option><option value="custom">Rango personalizado</option></select></div>
               <div><label for="reportTypeInput">Tipo</label><select id="reportTypeInput"><option value="all">Ingresos y gastos</option><option value="income">Solo ingresos</option><option value="expense">Solo gastos</option></select></div>
               <div><label for="reportCategoryInput">Categoría</label><select id="reportCategoryInput"><option value="all">Todas las categorías</option></select></div>
               <div><label for="reportGroupInput">Desglosar por</label><select id="reportGroupInput"><option value="category">Categoría</option><option value="month">Mes</option></select></div>
@@ -611,7 +611,7 @@
               <div class="report-date-field" id="reportEndField" hidden><label for="reportEndDate">Hasta</label><input id="reportEndDate" type="date" /></div>
               <div class="report-search-field"><label for="reportSearchInput">Buscar</label><input id="reportSearchInput" type="search" placeholder="Descripción o categoría" /></div>
             </div>
-            <p class="field-hint">Los totales consideran únicamente movimientos en tu moneda principal (<span class="base-currency-label">PEN</span>).</p>
+            <p class="field-hint">Se incluyen todos los movimientos del período. Si hay varias monedas base registradas, los totales se muestran separados para no mezclarlas.</p>
           </section>
           <section class="report-summary-cards" aria-label="Totales del reporte">
             <article class="panel report-summary-card"><span>Ingresos</span><strong id="reportIncomeValue">—</strong></article>

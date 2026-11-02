@@ -290,6 +290,7 @@ button { touch-action: manipulation; }
 .report-summary-card { display: grid; gap: 8px; padding: 16px; }
 .report-summary-card > span { color: var(--muted); font-size: .72rem; }
 .report-summary-card > strong { overflow-wrap: anywhere; font-size: clamp(.95rem, 2vw, 1.2rem); }
+.report-summary-card > strong.currency-breakdown { white-space: pre-line; font-size: .82rem; line-height: 1.45; }
 .report-breakdown-panel, .report-transactions-panel { margin-bottom: 14px; }
 .report-breakdown { display: grid; gap: 13px; }
 .report-category-row { display: grid; gap: 7px; }
@@ -395,6 +396,7 @@ button { touch-action: manipulation; }
 .income-icon { background: #e5f2e9; color: var(--green); }
 .expense-icon { background: #f9e9e6; color: var(--red); }
 .card > strong { display: block; margin: 14px 0 7px; overflow-wrap: anywhere; font-size: clamp(1.35rem, 2.1vw, 1.9rem); letter-spacing: -.045em; font-weight: 720; }
+.card > strong.currency-breakdown { white-space: pre-line; font-size: clamp(.9rem, 1.5vw, 1.2rem); line-height: 1.45; letter-spacing: 0; }
 .expense-card > strong { color: var(--red); }
 .card > small { color: var(--muted); font-size: .7rem; line-height: 1.45; }
 
