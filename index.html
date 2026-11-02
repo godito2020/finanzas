@@ -586,6 +586,7 @@
         <section class="panel transactions-panel app-page app-page-transactions" id="transactions" data-app-page="transactions">
           <div class="panel-header panel-header-filter">
             <div><p class="eyebrow">TU HISTORIAL</p><h2>Movimientos</h2></div>
+            <div class="transaction-toolbar">
             <div class="filters" id="filterForm">
               <input id="searchInput" type="search" placeholder="Buscar movimiento" aria-label="Buscar movimientos" />
               <select id="filterTypeInput" aria-label="Filtrar por tipo">
@@ -595,6 +596,11 @@
                 <option value="all">Todas las categorías</option><option value="Ingresos">Ingresos</option><option value="Vivienda">Vivienda</option><option value="Alimentación">Alimentación</option><option value="Transporte">Transporte</option><option value="Salud">Salud</option><option value="Entretenimiento">Entretenimiento</option><option value="Educación">Educación</option><option value="Ahorro">Ahorro</option><option value="Otros">Otros</option>
               </select>
               <select id="filterMonthInput" aria-label="Filtrar por mes"><option value="all">Todo el período</option></select>
+            </div>
+            <div class="transaction-export-actions" aria-label="Exportar movimientos filtrados">
+              <button class="button button-quiet" type="button" id="exportTransactionsPdfButton">↓ PDF</button>
+              <button class="button button-quiet" type="button" id="exportTransactionsExcelButton">↓ Excel (CSV)</button>
+            </div>
             </div>
           </div>
           <div class="table-wrapper">
@@ -621,6 +627,16 @@
               <div class="report-search-field"><label for="reportSearchInput">Buscar</label><input id="reportSearchInput" type="search" placeholder="Descripción o categoría" /></div>
             </div>
             <p class="field-hint">Se incluyen todos los movimientos del período. Si hay varias monedas base registradas, los totales se muestran separados para no mezclarlas.</p>
+          </section>
+          <section class="panel month-close-panel">
+            <div class="panel-header"><div><p class="eyebrow">CIERRE CONTABLE</p><h3>Cierre de mes</h3></div></div>
+            <p class="section-description">Calcula ingresos, gastos y saldo acumulado al cierre. El saldo se toma como apertura del mes siguiente. Los movimientos del mes cerrado siguen editables y el saldo se recalcula si los modificas.</p>
+            <div class="month-close-controls">
+              <div><label for="monthCloseMonthInput">Mes finalizado</label><input id="monthCloseMonthInput" type="month" required /></div>
+              <button class="button button-primary" type="button" id="monthCloseButton">Cerrar mes y trasladar saldo</button>
+            </div>
+            <p class="field-hint" id="monthCloseStatus" role="status" aria-live="polite"></p>
+            <div class="month-close-summary" id="monthCloseSummary" aria-live="polite"></div>
           </section>
           <section class="report-summary-cards" aria-label="Totales del reporte">
             <article class="panel report-summary-card"><span>Ingresos</span><strong id="reportIncomeValue">—</strong></article>

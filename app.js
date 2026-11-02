@@ -27,6 +27,8 @@ const aiFloatingButton = document.getElementById('aiFloatingButton');
 const authInstallButton = document.getElementById('authInstallButton');
 const authInstallHelp = document.getElementById('authInstallHelp');
 const reportButton = document.getElementById('reportButton');
+const exportTransactionsPdfButton = document.getElementById('exportTransactionsPdfButton');
+const exportTransactionsExcelButton = document.getElementById('exportTransactionsExcelButton');
 const restartOnboardingButton = document.getElementById('restartOnboardingButton');
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
@@ -168,6 +170,10 @@ const reportCategoryInput = document.getElementById('reportCategoryInput');
 const reportGroupInput = document.getElementById('reportGroupInput');
 const reportStartDate = document.getElementById('reportStartDate');
 const reportEndDate = document.getElementById('reportEndDate');
+const monthCloseMonthInput = document.getElementById('monthCloseMonthInput');
+const monthCloseButton = document.getElementById('monthCloseButton');
+const monthCloseStatus = document.getElementById('monthCloseStatus');
+const monthCloseSummary = document.getElementById('monthCloseSummary');
 const reportStartField = document.getElementById('reportStartField');
 const reportEndField = document.getElementById('reportEndField');
 const reportSearchInput = document.getElementById('reportSearchInput');
@@ -225,6 +231,7 @@ let debts = [];
 let debtPayments = [];
 let budgets = [];
 let emergencyFund = null;
+let monthClosures = [];
 let dashboardPeriod = 'all';
 let activeAppPage = 'summary';
 let subscriptionPlans = [];
@@ -478,6 +485,8 @@ function initialize() {
   dashboardEndDate.value = getDateString(0);
   reportStartDate.value = `${getDateString(0).slice(0, 7)}-01`;
   reportEndDate.value = getDateString(0);
+  monthCloseMonthInput.value = getPreviousMonthString(getDateString(0).slice(0, 7));
+  monthCloseMonthInput.max = getPreviousMonthString(getDateString(0).slice(0, 7));
   setDefaultAssignmentDates();
   formBaseCurrency = appBaseCurrency;
   updateExchangeRateField();
@@ -580,6 +589,10 @@ function initialize() {
   installButton.addEventListener('click', handleInstallClick);
   authInstallButton.addEventListener('click', handleInstallClick);
   reportButton.addEventListener('click', handleReportClick);
+  exportTransactionsPdfButton.addEventListener('click', handleTransactionsPdfExport);
+  exportTransactionsExcelButton.addEventListener('click', exportTransactionsExcel);
+  monthCloseMonthInput.addEventListener('change', renderMonthClose);
+  monthCloseButton.addEventListener('click', handleMonthClose);
   [reportPeriodInput, reportTypeInput, reportCategoryInput, reportGroupInput, reportStartDate, reportEndDate]
     .forEach((input) => input.addEventListener('change', renderReports));
   reportSearchInput.addEventListener('input', renderReports);
@@ -1107,7 +1120,7 @@ async function handlePaymentGateLogout() {
 
 async function loadAccountData() {
   const [transactionResult, goalResult, categoryResult, aiStatus, publicSettings, paymentResult,
-    debtResult, budgetResult, emergencyResult, planResult, planStatus] = await Promise.all([
+    debtResult, budgetResult, emergencyResult, planResult, planStatus, closureResult] = await Promise.all([
     apiRequest('transactions'),
     apiRequest('goals'),
     apiRequest('categories'),
@@ -1118,7 +1131,8 @@ async function loadAccountData() {
     apiRequest('budgets'),
     apiRequest('emergency-fund'),
     apiRequest('plans'),
-    apiRequest('plan-status')
+    apiRequest('plan-status'),
+    apiRequest('month-close')
   ]);
   transactions = transactionResult.transactions;
   goals = goalResult.goals;
@@ -1132,6 +1146,7 @@ async function loadAccountData() {
   paymentInstructions = planResult.paymentInstructions;
   currentSubscription = planStatus.subscription;
   hasPendingPlanRequest = planStatus.hasPendingRequest;
+  monthClosures = closureResult.closures;
   pendingPlanGateway = planStatus.pendingGateway;
   featureAccess = planStatus.featureAccess || featureAccess;
   aiAssistantAccess = aiStatus;
@@ -2068,6 +2083,146 @@ async function handleReportClick() {
     reportButton.disabled = false;
     reportButton.innerHTML = '<span aria-hidden="true">↓</span> Descargar PDF';
   }
+}
+
+async function handleTransactionsPdfExport() {
+  if (!featureAccess.reports) {
+    showAppNotice('La exportación está disponible con el acceso de por vida. Revisa Plan y suscripción.', true);
+    return;
+  }
+  const button = exportTransactionsPdfButton;
+  try {
+    button.disabled = true;
+    button.textContent = 'Preparando…';
+    await exportTransactionsPDF(getFilteredTransactions());
+  } catch (error) {
+    console.error('No se pudo exportar la lista de movimientos a PDF.', error);
+    showAppNotice('No se pudo generar el PDF. Intenta de nuevo.', true);
+  } finally {
+    button.disabled = false;
+    button.textContent = '↓ PDF';
+  }
+}
+
+async function exportTransactionsPDF(items) {
+  const jsPDF = await loadJsPDF();
+  const ordered = [...items].sort((a, b) => b.date.localeCompare(a.date));
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const left = 14;
+  const right = pageWidth - left;
+  const totals = sumTransactionsByCurrency(ordered);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.text('Movimientos de Finanza', left, 18);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text(`Exportado: ${formatDate(getDateString(0))} · ${ordered.length} movimiento${ordered.length === 1 ? '' : 's'}`, left, 25);
+  let y = 33;
+  doc.setFont('helvetica', 'bold');
+  doc.text('Balance por moneda base:', left, y);
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.text([...totals.entries()].map(([currency, amount]) => formatReportAmount(amount, currency)).join('  ·  ') || formatReportAmount(0), left, y);
+  y += 10;
+
+  const columns = { date: left + 2, description: left + 24, category: left + 105, type: left + 137, amount: right - 2 };
+  const drawHeader = () => {
+    doc.setFillColor(32, 38, 58);
+    doc.rect(left, y - 5, right - left, 9, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text('FECHA', columns.date, y);
+    doc.text('DESCRIPCIÓN', columns.description, y);
+    doc.text('CATEGORÍA', columns.category, y);
+    doc.text('TIPO', columns.type, y);
+    doc.text('MONTO', columns.amount, y, { align: 'right' });
+    y += 8;
+  };
+  drawHeader();
+
+  ordered.forEach((transaction, index) => {
+    const description = doc.splitTextToSize(transaction.description || '', 76);
+    const category = doc.splitTextToSize(transaction.category || 'Otros', 28);
+    const amount = `${transaction.type === 'income' ? '+' : '-'}${formatReportAmount(transaction.amount, transaction.currency)}`;
+    const rowHeight = Math.max(8, Math.max(description.length, category.length) * 4 + 3);
+    if (y + rowHeight > pageHeight - 14) {
+      doc.addPage();
+      y = 18;
+      drawHeader();
+    }
+    if (index % 2 === 0) {
+      doc.setFillColor(245, 247, 251);
+      doc.rect(left, y - 5, right - left, rowHeight, 'F');
+    }
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text(formatDate(transaction.date), columns.date, y);
+    doc.text(description, columns.description, y);
+    doc.text(category, columns.category, y);
+    doc.text(transaction.type === 'income' ? 'Ingreso' : 'Gasto', columns.type, y);
+    doc.text(amount, columns.amount, y, { align: 'right' });
+    y += rowHeight;
+  });
+
+  if (!ordered.length) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(107, 114, 128);
+    doc.text('No hay movimientos para los filtros seleccionados.', left, y);
+  }
+
+  const filename = `finanza-movimientos-${getDateString(0)}.pdf`;
+  const blob = doc.output('blob');
+  if (isNativePlatform()) {
+    const base64 = await blobToBase64(blob);
+    const file = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
+    await Share.share({ title: 'Movimientos de Finanza', url: file.uri, dialogTitle: 'Guardar o compartir PDF' });
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportTransactionsExcel() {
+  if (!featureAccess.reports) {
+    showAppNotice('La exportación está disponible con el acceso de por vida. Revisa Plan y suscripción.', true);
+    return;
+  }
+  const rows = [
+    ['Fecha', 'Descripción', 'Tipo', 'Categoría', 'Monto', 'Moneda', 'Monto en moneda base', 'Moneda base', 'Tipo de cambio'],
+    ...getFilteredTransactions().map((transaction) => [
+      transaction.date,
+      transaction.description || '',
+      transaction.type === 'income' ? 'Ingreso' : 'Gasto',
+      transaction.category || 'Otros',
+      Number(transaction.amount).toFixed(2),
+      transaction.currency,
+      Number(transaction.amountInBaseCurrency).toFixed(2),
+      transaction.baseCurrency || 'PEN',
+      Number(transaction.exchangeRate || 1).toString()
+    ])
+  ];
+  const csv = `\uFEFF${rows.map((row) => row.map((value) => {
+    let cell = String(value);
+    if (/^[\t\r ]*[=+\-@]/.test(cell)) cell = `'${cell}`;
+    return `"${cell.replace(/"/g, '""')}"`;
+  }).join(',')).join('\r\n')}`;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `finanza-movimientos-${getDateString(0)}.csv`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function exportReportPDF(reportTransactions, period, filters) {
@@ -3494,7 +3649,103 @@ function render() {
   renderMonthOptions();
   renderTable();
   renderReports();
+  renderMonthClose();
   updateCurrencyHistoryNotice();
+
+  const previousMonth = getPreviousMonthString(range.start.slice(0, 7));
+  const hasClosedOpening = dashboardPeriod === 'month' &&
+    monthClosures.some((closure) => closure.month === previousMonth);
+  const balanceCaption = document.getElementById('balanceDelta');
+  if (hasClosedOpening) {
+    transactions.filter((transaction) => transaction.date < range.start).forEach((transaction) => {
+      const currency = transaction.baseCurrency || 'PEN';
+      const amount = transaction.type === 'income'
+        ? transaction.amountInBaseCurrency
+        : -transaction.amountInBaseCurrency;
+      summary.balance.set(currency, (summary.balance.get(currency) || 0) + amount);
+      summary.currencies.add(currency);
+    });
+    balanceValue.textContent = formatCurrencyTotals(summary.balance);
+    balanceValue.classList.toggle('currency-breakdown', summary.currencies.size > 1);
+    balanceCaption.textContent = 'Incluye el saldo trasladado del cierre anterior';
+  } else {
+    balanceCaption.textContent = 'Ingresos menos gastos del período';
+  }
+}
+
+function getPreviousMonthString(month) {
+  const date = parseLocalDate(`${month}-01`);
+  date.setDate(0);
+  return localDateString(date).slice(0, 7);
+}
+
+function getMonthCloseMetrics(month) {
+  const monthTransactions = transactions.filter((transaction) => transaction.date.startsWith(`${month}-`));
+  const start = `${month}-01`;
+  const opening = sumTransactionsByCurrency(transactions.filter((transaction) => transaction.date < start));
+  const income = sumTransactionsByCurrency(monthTransactions, 'income');
+  const expense = sumTransactionsByCurrency(monthTransactions, 'expense');
+  const closing = new Map(opening);
+  monthTransactions.forEach((transaction) => {
+    const currency = transaction.baseCurrency || 'PEN';
+    const amount = transaction.type === 'income'
+      ? transaction.amountInBaseCurrency
+      : -transaction.amountInBaseCurrency;
+    closing.set(currency, (closing.get(currency) || 0) + amount);
+  });
+  const currencies = new Set([...opening.keys(), ...income.keys(), ...expense.keys(), ...closing.keys()]);
+  if (!currencies.size) currencies.add(appBaseCurrency);
+  [opening, income, expense, closing].forEach((totals) => {
+    currencies.forEach((currency) => {
+      if (!totals.has(currency)) totals.set(currency, 0);
+    });
+  });
+  return { opening, income, expense, closing, count: monthTransactions.length };
+}
+
+function renderMonthClose() {
+  const month = monthCloseMonthInput.value;
+  const closure = monthClosures.find((item) => item.month === month);
+  const latestClosableMonth = getPreviousMonthString(getDateString(0).slice(0, 7));
+  const validMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && month <= latestClosableMonth;
+  monthCloseButton.disabled = !validMonth || Boolean(closure);
+  monthCloseButton.textContent = closure ? 'Mes ya cerrado' : 'Cerrar mes y trasladar saldo';
+  if (!validMonth) {
+    monthCloseStatus.textContent = 'Selecciona un mes finalizado para calcular el cierre.';
+    monthCloseSummary.innerHTML = '';
+    return;
+  }
+  monthCloseStatus.textContent = closure
+    ? `Cerrado el ${new Date(closure.closedAt * 1000).toLocaleDateString('es-PE')}. Los cambios posteriores a sus movimientos se reflejan automáticamente en el saldo trasladado.`
+    : 'Vista previa: el saldo de cierre incluye el saldo anterior más los ingresos menos los gastos de este mes.';
+  const metrics = getMonthCloseMetrics(month);
+  const cards = [
+    ['Saldo inicial', metrics.opening],
+    ['Ingresos', metrics.income],
+    ['Gastos', metrics.expense],
+    ['Saldo de cierre · apertura siguiente', metrics.closing]
+  ];
+  monthCloseSummary.innerHTML = cards.map(([label, totals]) => `
+    <article><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatCurrencyTotals(totals))}</strong></article>
+  `).join('') + `<small>${metrics.count} movimiento${metrics.count === 1 ? '' : 's'} considerado${metrics.count === 1 ? '' : 's'}</small>`;
+}
+
+async function handleMonthClose() {
+  const month = monthCloseMonthInput.value;
+  if (!month || month > getPreviousMonthString(getDateString(0).slice(0, 7))) return;
+  monthCloseButton.disabled = true;
+  try {
+    const result = await apiRequest('month-close', { method: 'POST', body: { month } });
+    if (!monthClosures.some((closure) => closure.month === result.closure.month)) {
+      monthClosures.push(result.closure);
+    }
+    render();
+    showAppNotice(`Cierre de ${formatMonthLabel(month)} guardado. El saldo se trasladará al mes siguiente.`);
+  } catch (error) {
+    showAppNotice(error.message, true);
+  } finally {
+    renderMonthClose();
+  }
 }
 
 function getReportDateRange() {
