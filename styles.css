@@ -402,6 +402,7 @@ button { touch-action: manipulation; }
 
 .analytics-grid, .goals-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 16px; margin-bottom: 18px; }
 .panel-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 16px; margin-bottom: 18px; }
+.app-page-capture .panel-grid { grid-template-columns: minmax(0, 780px); justify-content: center; }
 .tools-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
 .goals-grid { grid-template-columns: minmax(0, 1fr); }
 .panel {
@@ -446,6 +447,20 @@ button { touch-action: manipulation; }
 
 .field-row { display: grid; gap: 8px; margin-bottom: 16px; }
 .two-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.transaction-form { display: grid; gap: 18px; }
+.transaction-form-section { padding-top: 17px; border-top: 1px solid var(--line); }
+.transaction-form-section > .eyebrow { margin-bottom: 14px; color: var(--muted); }
+.transaction-form-section .field-row:last-child { margin-bottom: 0; }
+.transaction-form-panel label { color: var(--muted); }
+.transaction-form-panel input, .transaction-form-panel select { border-color: var(--line); background: var(--surface-tint); color: var(--ink); }
+.transaction-form-panel input[type="date"] { color: var(--ink); }
+.transaction-ai-entry { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px; border: 1px solid rgba(99, 102, 241, .3); border-radius: 13px; background: linear-gradient(120deg, rgba(37, 99, 235, .1), rgba(124, 58, 237, .08)); }
+.transaction-ai-entry > div { display: grid; gap: 4px; }
+.transaction-ai-entry strong { font-size: .79rem; }
+.transaction-ai-entry span { color: var(--muted); font-size: .7rem; line-height: 1.45; }
+.transaction-ai-entry .button { flex: 0 0 auto; border-color: rgba(99, 102, 241, .35); color: #a5b4fc; }
+.transaction-form-panel .button-quiet { color: var(--ink); }
+.transaction-form .button-row { padding-top: 4px; }
 label { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; color: #4c5a50; font-size: .76rem; font-weight: 620; }
 .field-hint { color: #98a39b; font-size: .68rem; font-weight: 500; }
 input, select {
@@ -955,6 +970,8 @@ td .goal-actions { flex-wrap: nowrap; }
   .legend-item strong { font-size: .76rem; }
   .two-cols { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .field-row { margin-bottom: 14px; }
+  .transaction-ai-entry { align-items: stretch; flex-direction: column; }
+  .transaction-ai-entry .button { width: 100%; }
   input, select { min-height: 46px; font-size: 16px; }
   .button-row { flex-direction: column; align-items: stretch; }
   .button-row .button { min-height: 47px; }

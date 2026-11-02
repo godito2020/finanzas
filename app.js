@@ -225,7 +225,7 @@ let debts = [];
 let debtPayments = [];
 let budgets = [];
 let emergencyFund = null;
-let dashboardPeriod = 'month';
+let dashboardPeriod = 'all';
 let activeAppPage = 'summary';
 let subscriptionPlans = [];
 let paymentInstructions = {};
@@ -545,7 +545,7 @@ function initialize() {
   openAiAssistantButton.addEventListener('click', openAiAssistant);
   aiFloatingButton.addEventListener('click', () => {
     openAiAssistant();
-    startAiDictation();
+    if (aiAssistantAccess.available) startAiDictation();
   });
   requestAiAccessButton.addEventListener('click', requestAiSubscription);
   aiActivateLifetimeButton.addEventListener('click', () => {
@@ -1138,12 +1138,16 @@ async function loadAccountData() {
   aiAssistantAccess.lifetimeAccess = planStatus.lifetimeAccess;
   applyBaseCurrency(publicSettings.settings.baseCurrency);
   openAiAssistantButton.hidden = false;
-  aiFloatingButton.hidden = !aiStatus.available;
-  openAiAssistantButton.textContent = aiStatus.isMaster
-    ? 'Registro inteligente'
-    : aiStatus.available
-      ? 'Registro inteligente Pro'
-      : 'Registro inteligente · S/ 10 al mes';
+  aiFloatingButton.hidden = false;
+  aiFloatingButton.setAttribute('aria-label', aiStatus.isMaster || aiStatus.available
+    ? 'Usar asistente inteligente'
+    : 'Ver suscripción para usar el asistente inteligente');
+  aiFloatingButton.title = aiStatus.isMaster || aiStatus.available
+    ? 'Registro inteligente con IA'
+    : 'La IA requiere una suscripción';
+  openAiAssistantButton.textContent = aiStatus.isMaster || aiStatus.available
+    ? '✦ Usar asistente IA'
+    : '✦ Ver suscripción de IA';
   renderCategories();
   render();
 }
@@ -2364,7 +2368,9 @@ async function submitTransaction() {
 }
 
 function openAiAssistant() {
-  aiAssistantStatus.textContent = 'La foto o transcripción se enviará al servicio de IA para analizarla; no se guardará como archivo.';
+  aiAssistantStatus.textContent = aiAssistantAccess.available
+    ? 'La foto o transcripción se enviará al servicio de IA para analizarla; no se guardará como archivo.'
+    : 'Activa la suscripción para analizar comprobantes o dictar movimientos. Al continuar, la IA preparará un borrador que podrás revisar antes de guardarlo.';
   aiAssistantStatus.classList.remove('error');
   aiAssistantTitle.textContent = aiAssistantAccess.isMaster
     ? 'Registro inteligente'
@@ -2697,6 +2703,9 @@ function applyAiTransaction(result) {
   const categoryExists = Array.from(categoryInput.options).some((option) => option.value === transaction.category);
   categoryInput.value = categoryExists ? transaction.category : 'Otros';
   aiAssistantDialog.close();
+  setAppPage('capture', { scroll: true });
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}#capture`);
+  descriptionInput.focus();
   showAppNotice(result.categoryWarning
     ? 'Movimiento completado. Revisa la categoría sugerida antes de guardarlo.'
     : 'Movimiento completado con IA. Revísalo y pulsa Guardar movimiento.');
@@ -3937,6 +3946,7 @@ function renderTable() {
   tableBody.querySelectorAll('.delete-button').forEach((button) => {
     button.addEventListener('click', async () => {
       const id = button.dataset.deleteId;
+      if (!window.confirm('¿Eliminar este movimiento? Esta acción no se puede deshacer.')) return;
       button.disabled = true;
       try {
         await apiRequest('transactions', { method: 'DELETE', body: { id } });
@@ -3968,6 +3978,12 @@ function renderTable() {
       cancelEditButton.textContent = 'Cancelar edición';
       cancelEditButton.hidden = false;
       descriptionInput.value = item.description;
+      if (!Array.from(categoryInput.options).some((option) => option.value === item.category)) {
+        const categoryOption = document.createElement('option');
+        categoryOption.value = item.category;
+        categoryOption.textContent = item.category;
+        categoryInput.add(categoryOption);
+      }
       categoryInput.value = item.category;
       typeInput.value = item.type;
       formBaseCurrency = item.baseCurrency || 'PEN';
@@ -3976,8 +3992,9 @@ function renderTable() {
       exchangeRateInput.value = String(item.exchangeRate || 1);
       updateExchangeRateField();
       dateInput.value = item.date;
+      setAppPage('capture', { scroll: true });
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}#capture`);
       descriptionInput.focus();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
 }
@@ -4197,9 +4214,9 @@ function renderMonthOptions() {
 function resetFormState() {
   editingTransactionId = null;
   form.reset();
-  transactionFormTitle.textContent = 'Agregar movimiento';
+  transactionFormTitle.textContent = 'Nuevo movimiento';
   submitButton.textContent = 'Guardar movimiento';
-  cancelEditButton.textContent = 'Limpiar';
+  cancelEditButton.textContent = 'Limpiar formulario';
   cancelEditButton.hidden = false;
   dateInput.value = getDateString(0);
   typeInput.value = 'expense';
