@@ -229,6 +229,7 @@ const nextOnboardingButton = document.getElementById('nextOnboardingButton');
 const skipOnboardingButton = document.getElementById('skipOnboardingButton');
 
 let transactions = [];
+let transactionRefreshInFlight = false;
 let goals = [];
 let categories = [];
 let paymentSchedules = [];
@@ -720,8 +721,13 @@ function initialize() {
     updateInstallButtonVisibility();
     if (!document.hidden && authToken) {
       refreshBaseCurrency();
+      refreshTransactionsFromServer();
     }
   });
+  window.addEventListener('focus', refreshTransactionsFromServer);
+  window.setInterval(() => {
+    if (!document.hidden && authToken) refreshTransactionsFromServer();
+  }, 15000);
 
   if (isNativePlatform() && !apiBaseUrl) {
     authConfigNote.hidden = false;
@@ -1182,6 +1188,24 @@ async function refreshBaseCurrency() {
     }
   } catch (error) {
     console.warn('No se pudo actualizar la moneda principal.', error);
+  }
+}
+
+async function refreshTransactionsFromServer() {
+  if (!authToken || !currentUser || appShell.hidden || transactionRefreshInFlight) return;
+  transactionRefreshInFlight = true;
+  const currentTransactions = JSON.stringify(transactions);
+  try {
+    const result = await apiRequest('transactions');
+    if (JSON.stringify(transactions) !== currentTransactions) return;
+    if (JSON.stringify(result.transactions) !== currentTransactions) {
+      transactions = result.transactions;
+      render();
+    }
+  } catch (error) {
+    console.warn('No se pudieron sincronizar los movimientos.', error);
+  } finally {
+    transactionRefreshInFlight = false;
   }
 }
 
@@ -4367,6 +4391,7 @@ function getDashboardDateRange() {
     label = `Año ${today.slice(0, 4)}`;
   } else if (dashboardPeriod === 'all') {
     start = transactions.length ? transactions.reduce((min, item) => item.date < min ? item.date : min, today) : today;
+    end = transactions.length ? transactions.reduce((max, item) => item.date > max ? item.date : max, today) : today;
     label = 'Todo el período';
   } else {
     start = dashboardStartDate.value || today;
