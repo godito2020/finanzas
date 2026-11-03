@@ -727,7 +727,7 @@ function initialize() {
   window.addEventListener('focus', refreshTransactionsFromServer);
   window.setInterval(() => {
     if (!document.hidden && authToken) refreshTransactionsFromServer();
-  }, 15000);
+  }, 2000);
 
   if (isNativePlatform() && !apiBaseUrl) {
     authConfigNote.hidden = false;
