@@ -529,6 +529,115 @@ function quoteSqliteIdentifier(string $identifier): string
     return '"' . str_replace('"', '""', $identifier) . '"';
 }
 
+function copyDatabaseSnapshot(PDO $db, string $snapshotPath): void
+{
+    $snapshotSchema = 'finanza_snapshot';
+    $attached = false;
+    $foreignKeysEnabled = (int) $db->query('PRAGMA foreign_keys')->fetchColumn() === 1;
+    try {
+        $db->exec('ATTACH DATABASE ' . $db->quote($snapshotPath) . ' AS ' . quoteSqliteIdentifier($snapshotSchema));
+        $attached = true;
+        $objects = $db->query(
+            "SELECT type, name, tbl_name, sql FROM main.sqlite_master
+             WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view')
+               AND name NOT LIKE 'sqlite_%'
+             ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 WHEN 'trigger' THEN 2 ELSE 3 END, name"
+        )->fetchAll();
+        $tables = array_values(array_filter(
+            $objects,
+            static fn (array $object): bool => $object['type'] === 'table'
+        ));
+
+        $db->exec('PRAGMA foreign_keys = OFF');
+        $db->beginTransaction();
+        try {
+            foreach ($tables as $table) {
+                $createSql = (string) $table['sql'];
+                if (stripos($createSql, 'CREATE VIRTUAL TABLE') === 0) {
+                    throw new RuntimeException('Virtual tables are not supported in database backups.');
+                }
+                $createSql = preg_replace(
+                    '/^(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)(?:"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*\]|[A-Za-z_][A-Za-z0-9_]*)/i',
+                    '$1' . quoteSqliteIdentifier($snapshotSchema) . '.' .
+                        quoteSqliteIdentifier((string) $table['name']),
+                    $createSql,
+                    1,
+                    $replacements
+                );
+                if (!is_string($createSql) || $replacements !== 1) {
+                    throw new RuntimeException('Could not copy a table definition into the database backup.');
+                }
+                $db->exec($createSql);
+            }
+
+            foreach ($tables as $table) {
+                $tableName = (string) $table['name'];
+                $columns = $db->query('PRAGMA main.table_info(' . quoteSqliteIdentifier($tableName) . ')')
+                    ->fetchAll(PDO::FETCH_COLUMN, 1);
+                $columnList = implode(', ', array_map(
+                    static fn (string $column): string => quoteSqliteIdentifier($column),
+                    $columns
+                ));
+                if ($columnList !== '') {
+                    $quotedTable = quoteSqliteIdentifier($tableName);
+                    $db->exec(
+                        'INSERT INTO ' . quoteSqliteIdentifier($snapshotSchema) . '.' . $quotedTable .
+                        ' (' . $columnList . ') SELECT ' . $columnList . ' FROM main.' . $quotedTable
+                    );
+                }
+            }
+
+            foreach ($objects as $object) {
+                if ($object['type'] === 'table') {
+                    continue;
+                }
+                $type = strtoupper((string) $object['type']);
+                $keyword = $type === 'INDEX' ? '(?:UNIQUE\s+)?INDEX' : preg_quote($type, '/');
+                $createSql = preg_replace(
+                    '/^(CREATE\s+' . $keyword . '\s+(?:IF\s+NOT\s+EXISTS\s+)?)(?:"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*\]|[A-Za-z_][A-Za-z0-9_]*)/i',
+                    '$1' . quoteSqliteIdentifier($snapshotSchema) . '.' .
+                        quoteSqliteIdentifier((string) $object['name']),
+                    (string) $object['sql'],
+                    1,
+                    $replacements
+                );
+                if (!is_string($createSql) || $replacements !== 1) {
+                    throw new RuntimeException('Could not copy a database object into the backup.');
+                }
+                $db->exec($createSql);
+            }
+
+            $sequenceExists = (bool) $db->query(
+                "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'"
+            )->fetchColumn();
+            if ($sequenceExists) {
+                $db->exec('DELETE FROM ' . quoteSqliteIdentifier($snapshotSchema) . '.sqlite_sequence');
+                $db->exec(
+                    'INSERT INTO ' . quoteSqliteIdentifier($snapshotSchema) .
+                    '.sqlite_sequence (name, seq) SELECT name, seq FROM main.sqlite_sequence'
+                );
+            }
+            if ($db->query('PRAGMA ' . quoteSqliteIdentifier($snapshotSchema) . '.integrity_check')->fetchColumn() !== 'ok' ||
+                $db->query('PRAGMA ' . quoteSqliteIdentifier($snapshotSchema) . '.foreign_key_check')->fetch()) {
+                throw new RuntimeException('The generated database backup did not pass integrity validation.');
+            }
+            $db->commit();
+        } catch (Throwable $error) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $error;
+        }
+    } finally {
+        if ($foreignKeysEnabled) {
+            $db->exec('PRAGMA foreign_keys = ON');
+        }
+        if ($attached) {
+            $db->exec('DETACH DATABASE ' . quoteSqliteIdentifier($snapshotSchema));
+        }
+    }
+}
+
 function createDatabaseSnapshot(PDO $db): string
 {
     $databases = $db->query('PRAGMA database_list')->fetchAll();
@@ -554,7 +663,20 @@ function createDatabaseSnapshot(PDO $db): string
         throw new RuntimeException('Could not prepare the temporary database backup.');
     }
     try {
-        $db->exec('VACUUM INTO ' . $db->quote($snapshotPath));
+        $sqliteVersion = (string) $db->query('SELECT sqlite_version()')->fetchColumn();
+        if (version_compare($sqliteVersion, '3.27.0', '>=')) {
+            try {
+                $db->exec('VACUUM INTO ' . $db->quote($snapshotPath));
+            } catch (PDOException $error) {
+                $message = strtolower($error->getMessage());
+                if (!str_contains($message, 'syntax error') || !str_contains($message, 'into')) {
+                    throw $error;
+                }
+                copyDatabaseSnapshot($db, $snapshotPath);
+            }
+        } else {
+            copyDatabaseSnapshot($db, $snapshotPath);
+        }
         if (!is_file($snapshotPath) || filesize($snapshotPath) === 0) {
             throw new RuntimeException('The database backup is empty.');
         }
