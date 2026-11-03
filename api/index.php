@@ -531,15 +531,29 @@ function quoteSqliteIdentifier(string $identifier): string
 
 function createDatabaseSnapshot(PDO $db): string
 {
-    $snapshotPath = tempnam(sys_get_temp_dir(), 'finanza-backup-');
+    $databases = $db->query('PRAGMA database_list')->fetchAll();
+    $mainDatabase = array_values(array_filter(
+        $databases,
+        static fn (array $database): bool => ($database['name'] ?? '') === 'main'
+    ))[0] ?? null;
+    $databasePath = is_array($mainDatabase) ? (string) ($mainDatabase['file'] ?? '') : '';
+    $databaseDirectory = $databasePath !== '' ? realpath(dirname($databasePath)) : false;
+    if ($databaseDirectory === false) {
+        throw new RuntimeException('Could not locate the SQLite storage directory for the backup.');
+    }
+
+    $snapshotPath = tempnam($databaseDirectory, 'finanza-backup-');
     if ($snapshotPath === false) {
         throw new RuntimeException('Could not create a temporary database backup.');
+    }
+    if (realpath(dirname($snapshotPath)) !== $databaseDirectory) {
+        unlink($snapshotPath);
+        throw new RuntimeException('Could not create the backup in the SQLite storage directory.');
     }
     if (!unlink($snapshotPath)) {
         throw new RuntimeException('Could not prepare the temporary database backup.');
     }
     try {
-        $db->exec('PRAGMA wal_checkpoint(FULL)');
         $db->exec('VACUUM INTO ' . $db->quote($snapshotPath));
         if (!is_file($snapshotPath) || filesize($snapshotPath) === 0) {
             throw new RuntimeException('The database backup is empty.');
