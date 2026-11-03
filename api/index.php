@@ -524,11 +524,158 @@ function database(): PDO
     return $connection;
 }
 
+function quoteSqliteIdentifier(string $identifier): string
+{
+    return '"' . str_replace('"', '""', $identifier) . '"';
+}
+
+function createDatabaseSnapshot(PDO $db): string
+{
+    $snapshotPath = tempnam(sys_get_temp_dir(), 'finanza-backup-');
+    if ($snapshotPath === false) {
+        throw new RuntimeException('Could not create a temporary database backup.');
+    }
+    if (!unlink($snapshotPath)) {
+        throw new RuntimeException('Could not prepare the temporary database backup.');
+    }
+    try {
+        $db->exec('PRAGMA wal_checkpoint(FULL)');
+        $db->exec('VACUUM INTO ' . $db->quote($snapshotPath));
+        if (!is_file($snapshotPath) || filesize($snapshotPath) === 0) {
+            throw new RuntimeException('The database backup is empty.');
+        }
+        return $snapshotPath;
+    } catch (Throwable $error) {
+        if (is_file($snapshotPath)) {
+            unlink($snapshotPath);
+        }
+        throw $error;
+    }
+}
+
+function restoreDatabaseSnapshot(PDO $db, mixed $upload): array
+{
+    if (!is_array($upload) || (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK ||
+        !isset($upload['tmp_name']) || !is_uploaded_file((string) $upload['tmp_name'])) {
+        throw new ApiError(422, 'Selecciona un archivo de copia de seguridad válido.');
+    }
+    $sourcePath = (string) $upload['tmp_name'];
+    $size = filesize($sourcePath);
+    if ($size === false || $size < 100 || $size > 268435456) {
+        throw new ApiError(413, 'La base de datos debe pesar entre 100 bytes y 256 MB.');
+    }
+    $handle = fopen($sourcePath, 'rb');
+    $signature = $handle === false ? false : fread($handle, 16);
+    if (is_resource($handle)) {
+        fclose($handle);
+    }
+    if ($signature !== "SQLite format 3\0") {
+        throw new ApiError(422, 'El archivo no parece ser una base de datos SQLite de Finanza.');
+    }
+
+    $attachmentName = 'finanza_restore_' . bin2hex(random_bytes(6));
+    $attached = false;
+    $foreignKeysEnabled = (int) $db->query('PRAGMA foreign_keys')->fetchColumn() === 1;
+    try {
+        $db->exec('ATTACH DATABASE ' . $db->quote($sourcePath) . ' AS ' . quoteSqliteIdentifier($attachmentName));
+        $attached = true;
+        $integrity = $db->query('PRAGMA ' . quoteSqliteIdentifier($attachmentName) . '.integrity_check')->fetchColumn();
+        if ($integrity !== 'ok') {
+            throw new ApiError(422, 'La copia de seguridad está dañada y no se restauró.');
+        }
+        if ($db->query('PRAGMA ' . quoteSqliteIdentifier($attachmentName) . '.foreign_key_check')->fetch()) {
+            throw new ApiError(422, 'La copia contiene relaciones de datos inválidas y no se restauró.');
+        }
+
+        $readTables = static function (PDO $connection, string $schema): array {
+            $statement = $connection->query(
+                'SELECT name FROM ' . quoteSqliteIdentifier($schema) .
+                ".sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            );
+            return $statement->fetchAll(PDO::FETCH_COLUMN);
+        };
+        $liveTables = $readTables($db, 'main');
+        $backupTables = $readTables($db, $attachmentName);
+        if (!$liveTables || $liveTables !== $backupTables) {
+            throw new ApiError(422, 'La estructura no es compatible. Restaura una copia creada desde esta versión de Finanza.');
+        }
+        foreach ($liveTables as $table) {
+            $quotedTable = quoteSqliteIdentifier((string) $table);
+            $liveColumns = $db->query('PRAGMA main.table_info(' . $quotedTable . ')')->fetchAll(PDO::FETCH_COLUMN, 1);
+            $backupColumns = $db->query(
+                'PRAGMA ' . quoteSqliteIdentifier($attachmentName) . '.table_info(' . $quotedTable . ')'
+            )->fetchAll(PDO::FETCH_COLUMN, 1);
+            if ($liveColumns !== $backupColumns) {
+                throw new ApiError(422, 'La estructura de la copia no coincide con la base actual de Finanza.');
+            }
+        }
+        $masterCount = (int) $db->query(
+            'SELECT COUNT(*) FROM ' . quoteSqliteIdentifier($attachmentName) . '.users WHERE role = \'master\''
+        )->fetchColumn();
+        if ($masterCount < 1) {
+            throw new ApiError(422, 'La copia no contiene una cuenta maestra; no se restauró.');
+        }
+
+        $db->exec('PRAGMA foreign_keys = OFF');
+        $db->beginTransaction();
+        try {
+            foreach (array_reverse($liveTables) as $table) {
+                $db->exec('DELETE FROM main.' . quoteSqliteIdentifier((string) $table));
+            }
+            foreach ($liveTables as $table) {
+                $columns = $db->query('PRAGMA main.table_info(' . quoteSqliteIdentifier((string) $table) . ')')
+                    ->fetchAll(PDO::FETCH_COLUMN, 1);
+                $columnList = implode(', ', array_map(
+                    static fn (string $column): string => quoteSqliteIdentifier($column),
+                    $columns
+                ));
+                $quotedTable = quoteSqliteIdentifier((string) $table);
+                $db->exec(
+                    'INSERT INTO main.' . $quotedTable . ' (' . $columnList . ') SELECT ' . $columnList .
+                    ' FROM ' . quoteSqliteIdentifier($attachmentName) . '.' . $quotedTable
+                );
+            }
+            $sequenceExists = (bool) $db->query(
+                "SELECT 1 FROM " . quoteSqliteIdentifier($attachmentName) .
+                ".sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'"
+            )->fetchColumn();
+            if ($sequenceExists && $db->query(
+                "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'"
+            )->fetchColumn()) {
+                $db->exec('DELETE FROM main.sqlite_sequence');
+                $db->exec('INSERT INTO main.sqlite_sequence (name, seq) SELECT name, seq FROM ' .
+                    quoteSqliteIdentifier($attachmentName) . '.sqlite_sequence');
+            }
+            if ($db->query('PRAGMA main.foreign_key_check')->fetch()) {
+                throw new RuntimeException('Restored data failed foreign key validation.');
+            }
+            $db->commit();
+        } catch (Throwable $error) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $error;
+        }
+        return ['message' => 'Base de datos restaurada. Inicia sesión con las credenciales de la copia.'];
+    } finally {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        if ($foreignKeysEnabled) {
+            $db->exec('PRAGMA foreign_keys = ON');
+        }
+        if ($attached) {
+            $db->exec('DETACH DATABASE ' . quoteSqliteIdentifier($attachmentName));
+        }
+    }
+}
+
 function requestData(): array
 {
     $length = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
     if (str_starts_with(strtolower($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/form-data')) {
-        if ($length > 3145728) {
+        $maxUploadBytes = ($_GET['action'] ?? '') === 'admin-database-restore' ? 268435456 : 3145728;
+        if ($length > $maxUploadBytes) {
             throw new ApiError(413, 'El archivo supera el tamaño permitido.');
         }
         return [];
@@ -2318,7 +2465,7 @@ function handleRequest(string $action, string $method, array $data): array
     $masterActions = [
         'admin-users', 'admin-settings', 'admin-upload', 'admin-suggestions',
         'admin-subscriptions', 'admin-assignments', 'admin-ai-requests', 'admin-resend-activation',
-        'admin-plan-requests'
+        'admin-plan-requests', 'admin-database-backup', 'admin-database-restore'
     ];
     if (in_array($action, $masterActions, true)) {
         requireMaster($user);
@@ -2598,6 +2745,12 @@ function handleRequest(string $action, string $method, array $data): array
         }
         if ($action === 'admin-upload' && $method === 'POST') {
             return ['settings' => uploadBrandAsset((string) ($_POST['kind'] ?? ''))];
+        }
+        if ($action === 'admin-database-backup' && $method === 'GET') {
+            return ['_downloadPath' => createDatabaseSnapshot($db)];
+        }
+        if ($action === 'admin-database-restore' && $method === 'POST') {
+            return restoreDatabaseSnapshot($db, $_FILES['database'] ?? null);
         }
 
         if ($action === 'admin-suggestions' && $method === 'GET') {
@@ -3683,6 +3836,16 @@ try {
     $action = trim((string) ($_GET['action'] ?? ''));
     $data = requestData();
     $result = handleRequest($action, $method, $data);
+    if (isset($result['_downloadPath']) && is_string($result['_downloadPath'])) {
+        $backupPath = $result['_downloadPath'];
+        header('Content-Type: application/vnd.sqlite3');
+        header('Content-Disposition: attachment; filename="finanza-backup-' . gmdate('Y-m-d-His') . '.sqlite"');
+        header('Content-Length: ' . filesize($backupPath));
+        header('Cache-Control: no-store, max-age=0');
+        readfile($backupPath);
+        unlink($backupPath);
+        exit;
+    }
     jsonResponse(200, ['ok' => true] + $result);
 } catch (ApiError $error) {
     jsonResponse($error->status, ['ok' => false, 'error' => $error->getMessage()]);

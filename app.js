@@ -149,6 +149,11 @@ const setupPasswordInput = document.getElementById('setupPassword');
 const showSetupButton = document.getElementById('showSetupButton');
 const adminPanel = document.getElementById('adminPanel');
 const adminPanelButton = document.getElementById('adminPanelButton');
+const downloadDatabaseBackupButton = document.getElementById('downloadDatabaseBackupButton');
+const restoreDatabaseForm = document.getElementById('restoreDatabaseForm');
+const restoreDatabaseFile = document.getElementById('restoreDatabaseFile');
+const restoreDatabaseButton = document.getElementById('restoreDatabaseButton');
+const databaseBackupStatus = document.getElementById('databaseBackupStatus');
 const closeAdminButton = document.getElementById('closeAdminButton');
 const suggestionForm = document.getElementById('suggestionForm');
 const suggestionInput = document.getElementById('suggestionInput');
@@ -653,6 +658,8 @@ function initialize() {
   window.addEventListener('scroll', updateOnboardingSpotlight, true);
   adminPanelButton.addEventListener('click', openAdminPanel);
   closeAdminButton.addEventListener('click', closeAdminPanel);
+  downloadDatabaseBackupButton.addEventListener('click', downloadDatabaseBackup);
+  restoreDatabaseForm.addEventListener('submit', handleDatabaseRestore);
   document.querySelectorAll('.upload-button').forEach((button) => {
     button.addEventListener('click', () => handleBrandUpload(button.dataset.uploadKind, button));
   });
@@ -1383,6 +1390,87 @@ function closeAdminPanel() {
   updateAppPageVisibility();
   mobileNav.hidden = false;
   appNotice.hidden = true;
+}
+
+async function downloadDatabaseBackup() {
+  downloadDatabaseBackupButton.disabled = true;
+  databaseBackupStatus.hidden = true;
+  try {
+    const url = new URL(apiBaseUrl, document.baseURI);
+    url.searchParams.set('action', 'admin-database-backup');
+    const response = await fetch(url.href, {
+      headers: { Accept: 'application/vnd.sqlite3', Authorization: `Bearer ${authToken}` },
+      cache: 'no-store',
+      credentials: 'omit'
+    });
+    if (!response.ok) {
+      let message = 'No se pudo crear la copia de seguridad.';
+      try {
+        const result = await response.json();
+        if (typeof result.error === 'string') message = result.error;
+      } catch {
+        // Keep the user-facing fallback for non-JSON server errors.
+      }
+      throw new Error(message);
+    }
+    const backup = await response.blob();
+    if (!backup.size) throw new Error('El servidor generó una copia vacía.');
+    const objectUrl = URL.createObjectURL(backup);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = `finanza-backup-${getDateString(0)}.sqlite`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    databaseBackupStatus.textContent = 'Copia descargada. Guárdala en un lugar seguro.';
+    databaseBackupStatus.classList.remove('error');
+    databaseBackupStatus.hidden = false;
+  } catch (error) {
+    databaseBackupStatus.textContent = error.message;
+    databaseBackupStatus.classList.add('error');
+    databaseBackupStatus.hidden = false;
+  } finally {
+    downloadDatabaseBackupButton.disabled = false;
+  }
+}
+
+async function handleDatabaseRestore(event) {
+  event.preventDefault();
+  const file = restoreDatabaseFile.files[0];
+  if (!file) {
+    databaseBackupStatus.textContent = 'Selecciona el archivo de copia que quieres restaurar.';
+    databaseBackupStatus.classList.add('error');
+    databaseBackupStatus.hidden = false;
+    return;
+  }
+  if (file.size > 268435456) {
+    databaseBackupStatus.textContent = 'El archivo supera el límite de 256 MB.';
+    databaseBackupStatus.classList.add('error');
+    databaseBackupStatus.hidden = false;
+    return;
+  }
+  if (!window.confirm(
+    `Vas a reemplazar todos los datos de Finanza con "${file.name}". Esta acción no se puede deshacer desde la aplicación. Asegúrate de descargar primero una copia actual. ¿Continuar?`
+  )) return;
+
+  restoreDatabaseButton.disabled = true;
+  downloadDatabaseBackupButton.disabled = true;
+  databaseBackupStatus.textContent = 'Validando y restaurando la base de datos… No cierres esta página.';
+  databaseBackupStatus.classList.remove('error');
+  databaseBackupStatus.hidden = false;
+  try {
+    const body = new FormData();
+    body.append('database', file, file.name);
+    const result = await apiRequest('admin-database-restore', { method: 'POST', body });
+    clearAuthSession();
+    showAuthView('login', `${result.message} Inicia sesión para continuar.`);
+  } catch (error) {
+    databaseBackupStatus.textContent = error.message;
+    databaseBackupStatus.classList.add('error');
+    databaseBackupStatus.hidden = false;
+  } finally {
+    restoreDatabaseButton.disabled = false;
+    downloadDatabaseBackupButton.disabled = false;
+  }
 }
 
 async function loadAdminData() {

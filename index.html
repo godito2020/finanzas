@@ -666,6 +666,19 @@
             <div><p class="eyebrow">ACCESO MAESTRO</p><h2>Administración de la aplicación</h2></div>
             <button class="button button-reset" type="button" id="closeAdminButton">Volver a Finanza</button>
           </div>
+          <section class="panel admin-section admin-database-section">
+            <div class="panel-header"><div><p class="eyebrow">PROTECCIÓN DE DATOS</p><h2>Copia de seguridad y restauración</h2></div></div>
+            <p class="section-description">Descarga una copia completa de la base de datos SQLite. Para restaurar, carga un archivo de copia creado desde Finanza y confirma el reemplazo. La restauración reemplaza todos los datos y las cuentas actuales; al terminar tendrás que iniciar sesión con las credenciales guardadas en la copia.</p>
+            <div class="admin-database-actions">
+              <button class="button button-primary" type="button" id="downloadDatabaseBackupButton">Descargar copia de seguridad</button>
+              <form id="restoreDatabaseForm">
+                <label for="restoreDatabaseFile">Archivo de copia (.sqlite, .sqlite3 o .db)</label>
+                <input id="restoreDatabaseFile" type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3,application/x-sqlite3" required />
+                <button class="button button-delete" type="submit" id="restoreDatabaseButton">Restaurar base de datos</button>
+              </form>
+            </div>
+            <p class="auth-message" id="databaseBackupStatus" role="status" aria-live="polite" hidden></p>
+          </section>
           <section class="panel admin-section">
             <div class="panel-header"><div><p class="eyebrow">CUENTAS</p><h2>Clientes</h2></div></div>
             <div class="admin-subsection-heading"><div><h3>Agregar cliente</h3><p class="section-description">Crea una cuenta para un cliente de forma ordenada.</p></div></div>

@@ -746,6 +746,15 @@ td .goal-actions { flex-wrap: nowrap; }
 }
 .onboarding-status { margin-top: 12px; }
 .admin-panel { display: grid; gap: 15px; margin-bottom: 20px; }
+.admin-database-section > .section-description { max-width: 900px; }
+.admin-database-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); align-items: end; gap: 16px; }
+.admin-database-actions > .button { min-height: 46px; }
+.admin-database-actions form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px 12px; }
+.admin-database-actions form label { grid-column: 1 / -1; margin: 0; color: var(--muted); }
+.admin-database-actions form input { border-color: var(--line); background: var(--surface-tint); color: var(--ink); }
+.admin-database-actions form .button { min-height: 44px; }
+.admin-database-section .auth-message { margin: 12px 0 0; }
+.admin-database-section .auth-message.error { border-color: rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .1); color: #fca5a5; }
 .admin-heading { display: flex; justify-content: space-between; align-items: center; }
 .admin-heading h2 { margin: 5px 0 0; }
 .admin-section { min-width: 0; }
@@ -978,6 +987,9 @@ td .goal-actions { flex-wrap: nowrap; }
   .plan-card > p { min-height: 0; }
   .tools-grid { grid-template-columns: minmax(0, 1fr); gap: 13px; margin-bottom: 14px; }
   .panel { padding: 17px 15px; border-radius: 15px; }
+  .admin-database-actions, .admin-database-actions form { grid-template-columns: minmax(0, 1fr); }
+  .admin-database-actions form label { grid-column: auto; }
+  .admin-database-actions .button { width: 100%; }
   .panel-header { align-items: flex-start; margin-bottom: 14px; }
   .panel-header h2 { font-size: 1rem; }
   .chart-panel { padding: 17px 13px; }
