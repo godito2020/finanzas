@@ -1,5 +1,6 @@
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { strToU8, zipSync } from 'fflate';
 
 const AUTH_TOKEN_KEY = 'finanza-auth-token-v1';
 const THEME_PREFERENCE_KEY = 'finanza-theme';
@@ -177,6 +178,7 @@ const reportStartDate = document.getElementById('reportStartDate');
 const reportEndDate = document.getElementById('reportEndDate');
 const monthCloseMonthInput = document.getElementById('monthCloseMonthInput');
 const monthCloseButton = document.getElementById('monthCloseButton');
+const reopenMonthButton = document.getElementById('reopenMonthButton');
 const monthCloseStatus = document.getElementById('monthCloseStatus');
 const monthCloseSummary = document.getElementById('monthCloseSummary');
 const reportStartField = document.getElementById('reportStartField');
@@ -596,9 +598,10 @@ function initialize() {
   authInstallButton.addEventListener('click', handleInstallClick);
   reportButton.addEventListener('click', handleReportClick);
   exportTransactionsPdfButton.addEventListener('click', handleTransactionsPdfExport);
-  exportTransactionsExcelButton.addEventListener('click', exportTransactionsExcel);
+  exportTransactionsExcelButton.addEventListener('click', handleTransactionsExcelExport);
   monthCloseMonthInput.addEventListener('change', renderMonthClose);
   monthCloseButton.addEventListener('click', handleMonthClose);
+  reopenMonthButton.addEventListener('click', handleMonthReopen);
   [reportPeriodInput, reportTypeInput, reportCategoryInput, reportGroupInput, reportStartDate, reportEndDate]
     .forEach((input) => input.addEventListener('change', renderReports));
   reportSearchInput.addEventListener('input', renderReports);
@@ -2304,11 +2307,26 @@ async function exportTransactionsPDF(items) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function exportTransactionsExcel() {
+async function handleTransactionsExcelExport() {
   if (!featureAccess.reports) {
     showAppNotice('La exportación está disponible con el acceso de por vida. Revisa Plan y suscripción.', true);
     return;
   }
+  const button = exportTransactionsExcelButton;
+  try {
+    button.disabled = true;
+    button.textContent = 'Preparando…';
+    await exportTransactionsExcel();
+  } catch (error) {
+    console.error('No se pudo exportar la lista de movimientos a Excel.', error);
+    showAppNotice('No se pudo generar el archivo Excel. Intenta de nuevo.', true);
+  } finally {
+    button.disabled = false;
+    button.textContent = '↓ Excel (.xlsx)';
+  }
+}
+
+async function exportTransactionsExcel() {
   const rows = [
     ['Fecha', 'Descripción', 'Tipo', 'Categoría', 'Monto', 'Moneda', 'Monto en moneda base', 'Moneda base', 'Tipo de cambio'],
     ...getFilteredTransactions().map((transaction) => [
@@ -2316,25 +2334,72 @@ function exportTransactionsExcel() {
       transaction.description || '',
       transaction.type === 'income' ? 'Ingreso' : 'Gasto',
       transaction.category || 'Otros',
-      Number(transaction.amount).toFixed(2),
+      Number(transaction.amount),
       transaction.currency,
-      Number(transaction.amountInBaseCurrency).toFixed(2),
+      Number(transaction.amountInBaseCurrency),
       transaction.baseCurrency || 'PEN',
-      Number(transaction.exchangeRate || 1).toString()
+      Number(transaction.exchangeRate || 1)
     ])
   ];
-  const csv = `\uFEFF${rows.map((row) => row.map((value) => {
-    let cell = String(value);
-    if (/^[\t\r ]*[=+\-@]/.test(cell)) cell = `'${cell}`;
-    return `"${cell.replace(/"/g, '""')}"`;
-  }).join(',')).join('\r\n')}`;
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const workbookData = createTransactionsWorkbook(rows);
+  const filename = `finanza-movimientos-${getDateString(0)}.xlsx`;
+  const blob = new Blob([workbookData], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (isNativePlatform()) {
+    const base64 = await blobToBase64(blob);
+    const file = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
+    await Share.share({ title: 'Movimientos de Finanza', url: file.uri, dialogTitle: 'Guardar o compartir Excel' });
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `finanza-movimientos-${getDateString(0)}.csv`;
+  link.download = filename;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function createTransactionsWorkbook(rows) {
+  const columnLetters = 'ABCDEFGHI';
+  const widths = [13, 32, 12, 20, 14, 10, 23, 13, 15];
+  const escapeXml = (value) => String(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+  const cells = rows.map((row, rowIndex) => {
+    const rowNumber = rowIndex + 1;
+    const contents = row.map((value, columnIndex) => {
+      const cellReference = `${columnLetters[columnIndex]}${rowNumber}`;
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        const style = columnIndex === 4 || columnIndex === 6 ? ' s="1"' : columnIndex === 8 ? ' s="2"' : '';
+        return `<c r="${cellReference}"${style}><v>${value}</v></c>`;
+      }
+      const text = escapeXml(value ?? '');
+      return `<c r="${cellReference}" t="inlineStr"><is><t xml:space="preserve">${text}</t></is></c>`;
+    }).join('');
+    return `<row r="${rowNumber}">${contents}</row>`;
+  }).join('');
+  const columns = widths.map((width, index) =>
+    `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`
+  ).join('');
+  const files = {
+    '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    '_rels/.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Movimientos" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    'xl/styles.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00"/><numFmt numFmtId="165" formatCode="0.########"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
+    'xl/worksheets/sheet1.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${columns}</cols><sheetData>${cells}</sheetData><autoFilter ref="A1:I${rows.length}"/></worksheet>`
+  };
+  const worksheetXml = files['xl/worksheets/sheet1.xml'].replace(
+    /(<row r="1">)(.*?)(<\/row>)/,
+    (_, start, headerCells, end) => `${start}${headerCells.replace(/(<c\b[^>]*)(>)/g, '$1 s="3"$2')}${end}`
+  );
+  files['xl/worksheets/sheet1.xml'] = worksheetXml;
+  return zipSync(Object.fromEntries(
+    Object.entries(files).map(([path, content]) => [path, strToU8(content)])
+  ), { level: 6 });
 }
 
 async function exportReportPDF(reportTransactions, period, filters) {
@@ -2539,11 +2604,11 @@ function formatReportAmount(value, currency = appBaseCurrency) {
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('No se pudo preparar el reporte PDF.'));
+    reader.onerror = () => reject(new Error('No se pudo preparar el archivo para compartir.'));
     reader.onload = () => {
       const result = reader.result;
       if (typeof result !== 'string') {
-        reject(new Error('El reporte PDF tiene un formato inesperado.'));
+        reject(new Error('El archivo para compartir tiene un formato inesperado.'));
         return;
       }
       resolve(result.split(',')[1]);
@@ -3818,18 +3883,23 @@ function getMonthCloseMetrics(month) {
 function renderMonthClose() {
   const month = monthCloseMonthInput.value;
   const closure = monthClosures.find((item) => item.month === month);
+  const isClosed = Boolean(closure && !closure.reopened);
   const latestClosableMonth = getPreviousMonthString(getDateString(0).slice(0, 7));
   const validMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && month <= latestClosableMonth;
-  monthCloseButton.disabled = !validMonth || Boolean(closure);
-  monthCloseButton.textContent = closure ? 'Mes ya cerrado' : 'Cerrar mes y trasladar saldo';
+  monthCloseButton.disabled = !validMonth || isClosed;
+  monthCloseButton.textContent = isClosed ? 'Mes ya cerrado' : 'Cerrar mes y trasladar saldo';
+  reopenMonthButton.hidden = !validMonth || !isClosed;
+  reopenMonthButton.disabled = !validMonth || !isClosed;
   if (!validMonth) {
     monthCloseStatus.textContent = 'Selecciona un mes finalizado para calcular el cierre.';
     monthCloseSummary.innerHTML = '';
     return;
   }
-  monthCloseStatus.textContent = closure
-    ? `Cerrado el ${new Date(closure.closedAt * 1000).toLocaleDateString('es-PE')}. Los cambios posteriores a sus movimientos se reflejan automáticamente en el saldo trasladado.`
-    : 'Vista previa: el saldo de cierre incluye el saldo anterior más los ingresos menos los gastos de este mes.';
+  monthCloseStatus.textContent = isClosed
+    ? `Cerrado el ${new Date(closure.closedAt * 1000).toLocaleDateString('es-PE')}. Puedes reabrirlo para corregir movimientos; el saldo trasladado se recalcula automáticamente.`
+    : closure?.reopened
+      ? 'Mes reabierto. Corrige o agrega movimientos; los saldos se recalculan automáticamente. Cuando termines, vuelve a cerrar el mes.'
+      : 'Vista previa: el saldo de cierre incluye el saldo anterior más los ingresos menos los gastos de este mes.';
   const metrics = getMonthCloseMetrics(month);
   const cards = [
     ['Saldo inicial', metrics.opening],
@@ -3848,11 +3918,34 @@ async function handleMonthClose() {
   monthCloseButton.disabled = true;
   try {
     const result = await apiRequest('month-close', { method: 'POST', body: { month } });
-    if (!monthClosures.some((closure) => closure.month === result.closure.month)) {
-      monthClosures.push(result.closure);
-    }
+    const existingIndex = monthClosures.findIndex((closure) => closure.month === result.closure.month);
+    if (existingIndex < 0) monthClosures.push(result.closure);
+    else monthClosures[existingIndex] = result.closure;
     render();
     showAppNotice(`Cierre de ${formatMonthLabel(month)} guardado. El saldo se trasladará al mes siguiente.`);
+  } catch (error) {
+    showAppNotice(error.message, true);
+  } finally {
+    renderMonthClose();
+  }
+}
+
+async function handleMonthReopen() {
+  const month = monthCloseMonthInput.value;
+  if (!month || !monthClosures.some((closure) => closure.month === month && !closure.reopened)) return;
+  if (!window.confirm(
+    `Vas a reabrir ${formatMonthLabel(month)} para corregir o agregar movimientos. El saldo de los meses posteriores se recalculará automáticamente. ¿Continuar?`
+  )) return;
+  reopenMonthButton.disabled = true;
+  try {
+    const result = await apiRequest('month-close', { method: 'DELETE', body: { month } });
+    const closure = monthClosures.find((item) => item.month === result.closure.month);
+    if (closure) {
+      closure.reopened = true;
+      closure.reopenedAt = Date.now() / 1000;
+    }
+    render();
+    showAppNotice(`${formatMonthLabel(month)} reabierto. Corrige los movimientos y vuelve a cerrarlo cuando termines.`);
   } catch (error) {
     showAppNotice(error.message, true);
   } finally {

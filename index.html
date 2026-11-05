@@ -599,7 +599,7 @@
             </div>
             <div class="transaction-export-actions" aria-label="Exportar movimientos filtrados">
               <button class="button button-quiet" type="button" id="exportTransactionsPdfButton">↓ PDF</button>
-              <button class="button button-quiet" type="button" id="exportTransactionsExcelButton">↓ Excel (CSV)</button>
+              <button class="button button-quiet" type="button" id="exportTransactionsExcelButton">↓ Excel (.xlsx)</button>
             </div>
             </div>
           </div>
@@ -630,10 +630,11 @@
           </section>
           <section class="panel month-close-panel">
             <div class="panel-header"><div><p class="eyebrow">CIERRE CONTABLE</p><h3>Cierre de mes</h3></div></div>
-            <p class="section-description">Calcula ingresos, gastos y saldo acumulado al cierre. El saldo se toma como apertura del mes siguiente. Los movimientos del mes cerrado siguen editables y el saldo se recalcula si los modificas.</p>
+            <p class="section-description">Calcula ingresos, gastos y saldo acumulado al cierre. El saldo se toma como apertura del mes siguiente. Puedes reabrir un mes cerrado para corregir movimientos; el saldo acumulado se recalcula automáticamente.</p>
             <div class="month-close-controls">
               <div><label for="monthCloseMonthInput">Mes finalizado</label><input id="monthCloseMonthInput" type="month" required /></div>
               <button class="button button-primary" type="button" id="monthCloseButton">Cerrar mes y trasladar saldo</button>
+              <button class="button button-quiet" type="button" id="reopenMonthButton" hidden>Reabrir mes para corregir</button>
             </div>
             <p class="field-hint" id="monthCloseStatus" role="status" aria-live="polite"></p>
             <div class="month-close-summary" id="monthCloseSummary" aria-live="polite"></div>

@@ -516,6 +516,10 @@ function database(): PDO
     if (!in_array('base_currency', $transactionColumns, true)) {
         $connection->exec("ALTER TABLE transactions ADD COLUMN base_currency TEXT NOT NULL DEFAULT 'PEN'");
     }
+    $monthClosureColumns = array_column($connection->query('PRAGMA table_info(monthly_closures)')->fetchAll(), 'name');
+    if (!in_array('reopened_at', $monthClosureColumns, true)) {
+        $connection->exec('ALTER TABLE monthly_closures ADD COLUMN reopened_at INTEGER');
+    }
     $goalColumns = array_column($connection->query('PRAGMA table_info(goals)')->fetchAll(), 'name');
     if (!in_array('currency', $goalColumns, true)) {
         $connection->exec("ALTER TABLE goals ADD COLUMN currency TEXT NOT NULL DEFAULT 'PEN'");
@@ -3414,13 +3418,46 @@ function handleRequest(string $action, string $method, array $data): array
     }
     if ($action === 'month-close' && $method === 'GET') {
         $statement = $db->prepare(
-            'SELECT month, closed_at AS closedAt FROM monthly_closures WHERE user_id = ? ORDER BY month DESC'
+            'SELECT month, closed_at AS closedAt, reopened_at AS reopenedAt
+             FROM monthly_closures WHERE user_id = ? ORDER BY month DESC'
         );
         $statement->execute([$userId]);
         return ['closures' => array_map(static function (array $row): array {
             $row['closedAt'] = (int) $row['closedAt'];
+            $row['reopened'] = $row['reopenedAt'] !== null;
+            $row['reopenedAt'] = $row['reopenedAt'] === null ? null : (int) $row['reopenedAt'];
             return $row;
         }, $statement->fetchAll())];
+    }
+    if ($action === 'month-close' && $method === 'DELETE') {
+        $month = $data['month'] ?? null;
+        if (!is_string($month) || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) {
+            throw new ApiError(422, 'Selecciona un mes válido para reabrir.');
+        }
+        $timezone = new DateTimeZone((string) ($user['timezone'] ?? 'UTC'));
+        $currentMonth = (new DateTimeImmutable('now', $timezone))->format('Y-m');
+        if ($month >= $currentMonth) {
+            throw new ApiError(422, 'Solo puedes reabrir meses que ya finalizaron.');
+        }
+        $statement = $db->prepare(
+            'UPDATE monthly_closures SET reopened_at = ?
+             WHERE user_id = ? AND month = ? AND reopened_at IS NULL'
+        );
+        $statement->execute([time(), $userId, $month]);
+        if ($statement->rowCount() === 0) {
+            $exists = $db->prepare(
+                'SELECT reopened_at FROM monthly_closures WHERE user_id = ? AND month = ?'
+            );
+            $exists->execute([$userId, $month]);
+            $reopenedAt = $exists->fetchColumn();
+            if ($reopenedAt === false) {
+                throw new ApiError(404, 'No se encontró un cierre para ese mes.');
+            }
+            if ($reopenedAt !== null) {
+                throw new ApiError(409, 'Ese mes ya está reabierto.');
+            }
+        }
+        return ['closure' => ['month' => $month, 'reopened' => true]];
     }
     if ($action === 'month-close' && $method === 'POST') {
         $month = $data['month'] ?? null;
@@ -3432,20 +3469,13 @@ function handleRequest(string $action, string $method, array $data): array
         if ($month >= $currentMonth) {
             throw new ApiError(422, 'Solo puedes cerrar meses que ya finalizaron.');
         }
+        $closedAt = time();
         $statement = $db->prepare(
-            'INSERT INTO monthly_closures (user_id, month, closed_at) VALUES (?, ?, ?)
-             ON CONFLICT(user_id, month) DO NOTHING'
+            'INSERT INTO monthly_closures (user_id, month, closed_at, reopened_at) VALUES (?, ?, ?, NULL)
+             ON CONFLICT(user_id, month) DO UPDATE SET closed_at = excluded.closed_at, reopened_at = NULL'
         );
-        $statement->execute([$userId, $month, time()]);
-        $closure = $db->prepare(
-            'SELECT month, closed_at AS closedAt FROM monthly_closures WHERE user_id = ? AND month = ?'
-        );
-        $closure->execute([$userId, $month]);
-        $row = $closure->fetch();
-        if (!$row) {
-            throw new RuntimeException('The monthly closure could not be saved.');
-        }
-        return ['closure' => ['month' => $row['month'], 'closedAt' => (int) $row['closedAt']]];
+        $statement->execute([$userId, $month, $closedAt]);
+        return ['closure' => ['month' => $month, 'closedAt' => $closedAt, 'reopened' => false]];
     }
     if ($action === 'transactions' && in_array($method, ['POST', 'PUT'], true)) {
         if ($method === 'POST') {
