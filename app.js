@@ -1213,6 +1213,7 @@ async function refreshTransactionsFromServer() {
 }
 
 function showApp() {
+  dateInput.value = getDateString(0);
   authScreen.hidden = true;
   appShell.hidden = false;
   mobileNav.hidden = false;
@@ -3829,25 +3830,7 @@ function render() {
   renderMonthClose();
   updateCurrencyHistoryNotice();
 
-  const previousMonth = getPreviousMonthString(range.start.slice(0, 7));
-  const hasClosedOpening = dashboardPeriod === 'month' &&
-    monthClosures.some((closure) => closure.month === previousMonth);
-  const balanceCaption = document.getElementById('balanceDelta');
-  if (hasClosedOpening) {
-    transactions.filter((transaction) => transaction.date < range.start).forEach((transaction) => {
-      const currency = transaction.baseCurrency || 'PEN';
-      const amount = transaction.type === 'income'
-        ? transaction.amountInBaseCurrency
-        : -transaction.amountInBaseCurrency;
-      summary.balance.set(currency, (summary.balance.get(currency) || 0) + amount);
-      summary.currencies.add(currency);
-    });
-    balanceValue.textContent = formatCurrencyTotals(summary.balance);
-    balanceValue.classList.toggle('currency-breakdown', summary.currencies.size > 1);
-    balanceCaption.textContent = 'Incluye el saldo trasladado del cierre anterior';
-  } else {
-    balanceCaption.textContent = 'Ingresos menos gastos del período';
-  }
+  document.getElementById('balanceDelta').textContent = 'Ingresos menos gastos del período';
 }
 
 function getPreviousMonthString(month) {
@@ -4732,6 +4715,22 @@ function formatMonthLabel(monthKey) {
 }
 
 function getDateString(offsetDays) {
+  const timezone = currentUser?.timezone;
+  if (timezone && timezone !== 'UTC') {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(new Date());
+    const dateParts = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    const date = new Date(Date.UTC(
+      Number(dateParts.year),
+      Number(dateParts.month) - 1,
+      Number(dateParts.day) + offsetDays
+    ));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+  }
   const date = new Date();
   date.setDate(date.getDate() + offsetDays);
   const year = date.getFullYear();

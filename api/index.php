@@ -947,7 +947,7 @@ function authenticatedUser(): array
     }
 
     $statement = database()->prepare(
-        'SELECT users.id, users.name, users.email, users.role, users.onboarding_completed,
+        'SELECT users.id, users.name, users.email, users.role, users.timezone, users.onboarding_completed,
                 users.paid_access_required, auth_tokens.token_hash
          FROM auth_tokens JOIN users ON users.id = auth_tokens.user_id
          WHERE auth_tokens.token_hash = ? AND auth_tokens.expires_at > ?
@@ -1005,6 +1005,7 @@ function publicUser(array $user): array
 {
     return ['id' => (int) $user['id'], 'name' => $user['name'], 'email' => $user['email'],
         'role' => $user['role'] ?? 'user',
+        'timezone' => $user['timezone'] ?? 'UTC',
         'onboardingCompleted' => (bool) ($user['onboarding_completed'] ?? 1)];
 }
 
